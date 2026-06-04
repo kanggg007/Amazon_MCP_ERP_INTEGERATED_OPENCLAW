@@ -1,0 +1,29 @@
+# ETL Schedule Configuration
+# SP-API call frequency per store
+
+ETL_SCHEDULE:
+  orders:
+    frequency: hourly        # Pull new orders every hour
+    description: Catch new orders quickly for processing
+    sp_api_endpoint: /orders/v0/orders
+    calls_per_day: 24
+
+  inventory:
+    frequency: daily         # Once per day
+    description: Inventory snapshot - stock levels
+    sp_api_endpoint: /fba/inventory/v1/summaries
+    calls_per_day: 1
+
+  fba_shipments:
+    frequency: daily         # Once per day
+    description: Inbound shipment tracking
+    sp_api_endpoint: /fba/inbound/v0/shipments
+    calls_per_day: 1
+
+  ads_performance:
+    frequency: daily         # Once per day
+    description: Advertising performance data
+    calls_per_day: 1
+
+TOTAL_CALLS_PER_STORE_PER_DAY: 27
+TOTAL_CALLS_5_STORES: 135

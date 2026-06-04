@@ -1,0 +1,20 @@
+
+
+# .gitignore for Amazon Ops Intel Platform
+__pycache__/
+*.pyc
+.env
+.env.local
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+data_lake/
+claims/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
