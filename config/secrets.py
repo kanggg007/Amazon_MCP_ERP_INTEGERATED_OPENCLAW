@@ -77,7 +77,7 @@ class SecretsLoader:
                 secrets[simple_key] = os.environ[env_name]
 
         if not secrets:
-            logger.warning("No secrets found for store '%s'", store_id)
+            logger.debug("No secrets found for store '%s' - env vars not set", store_id)
 
         self._cache[store_id] = secrets
 
@@ -116,4 +116,4 @@ class SecretsLoader:
                 parts = upper.split("_")
                 if len(parts) >= 2:
                     ids.add(parts[1].lower())
-        return sorted(ids) if ids else ["default"]
+        return sorted(ids) if ids else []

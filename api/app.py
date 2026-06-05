@@ -19,7 +19,7 @@ from engines.discrepancy_engine import DiscrepancyEngine
 from engines.ads_engine import AdsEngine
 from engines.voc_engine import VoCEngine
 from db.connection import get_session
-from auth import get_store_registry, get_rbac, check_store_access
+# lazy import inside route handlers
 from auth.rbac import AdminRole
 
 logger = logging.getLogger("amazon.api")
@@ -96,10 +96,15 @@ def require_store_access(user_id: str, store_id: str, action: str = "read"):
 
 @app.get("/")
 async def root():
+    from auth import get_store_registry
+    try:
+        stores = list(get_store_registry().active_stores.keys())
+    except:
+        stores = []
     return {
         "service": "Amazon Operations Intelligence Platform",
         "version": "1.0.0",
-        "stores": list(get_store_registry().active_stores.keys()),
+        "stores": stores,
         "endpoints": [
             "POST /query — Natural language query",
             "POST /action/propose — Propose action",
@@ -115,15 +120,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    try:
-        stores = list(get_store_registry().active_stores.keys())
-    except:
-        stores = []
-    return {
-        "status": "ok",
-        "version": "1.0.0",
-        "active_stores": stores or ["none (check env vars)"],
-    }
+    return {"status": "ok", "version": "1.0.0"}
 
 
 @app.post("/query", response_model=QueryResponse)
