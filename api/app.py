@@ -19,6 +19,7 @@ from engines.discrepancy_engine import DiscrepancyEngine
 from engines.ads_engine import AdsEngine
 from engines.voc_engine import VoCEngine
 from engines.return_refund_engine import ReturnRefundEngine
+from engines.profit_leakage_engine import ProfitLeakageEngine
 from db.connection import get_session
 # lazy import inside route handlers
 from auth.rbac import AdminRole
@@ -119,6 +120,10 @@ async def root():
             "POST /finances/reconcile — Reconcile loss events",
             "GET /finances/loss/{store_id} — Profit leakage analysis",
             "GET /finances/summary/{store_id} — Return/refund summary",
+            "GET /pld/leakage/{store_id} — Profit leakage by SKU",
+            "GET /pld/sku/{store_id}/{sku} — True profit for one SKU",
+            "GET /pld/scan/{store_id} — Scan all SKUs (min_loss filter)",
+            "GET /pld/patterns/{store_id}/{sku} — AI pattern detection",
         ],
     }
 
@@ -338,6 +343,71 @@ async def get_finance_summary(store_id: str, user_id: str = "master"):
     return {
         "status": "ok",
         "summary": summary,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+# ─── Profit Leakage Detection Routes ───
+
+
+@app.get("/pld/leakage/{store_id}")
+async def get_profit_leakage_sku(store_id: str, days: int = 30, user_id: str = "master"):
+    """Get profit leakage breakdown by SKU for a store."""
+    require_store_access(user_id, store_id, "read")
+    engine = ProfitLeakageEngine(store_id)
+    results = engine.scan_all_skus(days=days, min_loss=100)
+    return {
+        "status": "ok",
+        "leakage": results,
+        "total_leakage": sum(s.get("leakage", 0) for s in results),
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/pld/sku/{store_id}/{sku}")
+async def get_sku_profit(store_id: str, sku: str, days: int = 30, user_id: str = "master"):
+    """Full true profit + leakage breakdown for one SKU."""
+    require_store_access(user_id, store_id, "read")
+    engine = ProfitLeakageEngine(store_id)
+    result = engine.calculate_sku_profit(sku, days=days)
+    return {
+        "status": "ok",
+        "sku_analysis": result,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/pld/scan/{store_id}")
+async def scan_sku_leakage(store_id: str, days: int = 30, min_loss: float = 100.0, user_id: str = "master"):
+    """Scan all SKUs and rank by profit leakage."""
+    require_store_access(user_id, store_id, "read")
+    engine = ProfitLeakageEngine(store_id)
+    results = engine.scan_all_skus(days=days, min_loss=min_loss)
+    return {
+        "status": "ok",
+        "leakage_ranked": results,
+        "total_skus": len(results),
+        "total_leakage": round(sum(s.get("leakage", 0) for s in results), 2),
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/pld/patterns/{store_id}/{sku}")
+async def get_profit_patterns(store_id: str, sku: str, days: int = 90, user_id: str = "master"):
+    """AI pattern detection for profit leakage.
+    Returns: return reason clusters, wasted ad keywords, unclaimed FBA reimbursements.
+    """
+    require_store_access(user_id, store_id, "read")
+    engine = ProfitLeakageEngine(store_id)
+    patterns = engine.detect_patterns(sku, days=days)
+    return {
+        "status": "ok",
+        "patterns": patterns,
+        "sku": sku,
         "store_id": store_id,
         "requested_by": user_id,
     }

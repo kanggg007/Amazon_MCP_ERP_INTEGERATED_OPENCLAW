@@ -832,4 +832,62 @@ FROM customer_loss_events cle
 GROUP BY cle.store_id, cle.sku, cle.asin, cle.loss_type
 ORDER BY total_loss DESC;
 
+-- ============================================================================
+-- VIEW: SKU return loss layer
+-- ============================================================================
+CREATE OR REPLACE VIEW v_sku_return_loss AS
+SELECT
+    cle.store_id,
+    cle.sku,
+    COUNT(*) AS return_count,
+    COUNT(DISTINCT cle.amazon_order_id) AS order_count,
+    SUM(CASE WHEN cle.loss_type = 'return_damage' THEN 1 ELSE 0 END) AS damage_count,
+    SUM(CASE WHEN cle.loss_type = 'return_damage' THEN cle.amount_loss ELSE 0 END) AS damage_loss,
+    SUM(cle.amount_loss) AS total_loss,
+    CASE WHEN COUNT(*) > 0
+         THEN SUM(CASE WHEN cle.loss_type = 'return_damage' THEN 1 ELSE 0 END)::NUMERIC / COUNT(*)
+         ELSE 0 END AS damage_rate,
+    cle.reason AS reason_top
+FROM customer_loss_events cle
+WHERE cle.loss_type IN ('return_damage', 'customer_return', 'refund', 'partial_refund')
+GROUP BY cle.store_id, cle.sku, cle.reason
+ORDER BY total_loss DESC;
+
+-- ============================================================================
+-- VIEW: SKU ads waste layer
+-- ============================================================================
+CREATE OR REPLACE VIEW v_sku_ads_waste AS
+SELECT
+    ap.store_id,
+    ap.campaign_id,
+    ap.sku,
+    SUM(ap.spend) AS total_spend,
+    SUM(ap.sales) AS attributed_sales,
+    CASE WHEN SUM(ap.spend) > 0
+         THEN SUM(ap.sales) / SUM(ap.spend)
+         ELSE 0 END AS roas,
+    SUM(CASE WHEN ap.sales = 0 THEN ap.spend ELSE 0 END) AS wasted_spend,
+    COUNT(DISTINCT ap.keyword) FILTER (WHERE ap.sales = 0) AS wasted_keywords
+FROM ads_performance ap
+WHERE ap.sku IS NOT NULL
+GROUP BY ap.store_id, ap.campaign_id, ap.sku
+ORDER BY wasted_spend DESC;
+
+-- ============================================================================
+-- VIEW: FBA leakage layer
+-- ============================================================================
+CREATE OR REPLACE VIEW v_fba_leakage AS
+SELECT
+    sd.store_id,
+    sd.sku,
+    COUNT(*) AS incident_count,
+    SUM(sd.quantity_lost) AS total_lost,
+    SUM(sd.quantity_damaged) AS total_damaged,
+    SUM(sd.estimated_loss) AS total_loss,
+    SUM(CASE WHEN sd.claim_filed THEN 0 ELSE sd.estimated_loss END) AS missing_reimbursement
+FROM shipment_discrepancies sd
+GROUP BY sd.store_id, sd.sku
+HAVING SUM(sd.estimated_loss) > 0
+ORDER BY total_loss DESC;
+
 COMMIT;
