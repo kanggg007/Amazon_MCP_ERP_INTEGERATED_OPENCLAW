@@ -874,6 +874,93 @@ GROUP BY ap.store_id, ap.campaign_id, ap.sku
 ORDER BY wasted_spend DESC;
 
 -- ============================================================================
+-- 23. INVENTORY LOSS EVENTS (Ledger-style inventory movements)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS inventory_loss_events (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    sku                 VARCHAR(255),
+    fnsku               VARCHAR(64),
+    asin                VARCHAR(32),
+    event_type          VARCHAR(32) NOT NULL CHECK (
+                            event_type IN ('lost', 'damaged', 'disposed', 'returned', 'transferred')
+                        ),
+    quantity            INTEGER NOT NULL DEFAULT 0,
+    estimated_value     NUMERIC(12,2) DEFAULT 0,
+    event_date          DATE NOT NULL,
+    reference_id        VARCHAR(128),
+    notes               TEXT,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_ile_store_date ON inventory_loss_events(store_id, event_date);
+CREATE INDEX idx_ile_sku ON inventory_loss_events(sku);
+CREATE INDEX idx_ile_type ON inventory_loss_events(event_type);
+
+-- ============================================================================
+-- 24. REIMBURSEMENT TRACKING (Claim cases with deadlines)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS reimbursement_tracking (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    loss_event_id       BIGINT REFERENCES inventory_loss_events(id),
+    shipment_id         VARCHAR(64),
+    sku                 VARCHAR(255),
+    case_type           VARCHAR(32) NOT NULL CHECK (
+                            case_type IN ('inbound_shortage', 'inventory_lost',
+                                          'damage_event', 'customer_return',
+                                          'reimbursement_underpayment')
+                        ),
+    expected_amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
+    received_amount     NUMERIC(12,2) DEFAULT 0,
+    status              VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK (
+                            status IN ('pending', 'in_progress', 'filed', 'resolved', 'rejected')
+                        ),
+    claim_deadline      DATE,
+    confidence_score    NUMERIC(5,4),
+    filed_date          TIMESTAMPTZ,
+    resolved_date       TIMESTAMPTZ,
+    notes               TEXT,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_rt_status ON reimbursement_tracking(status);
+CREATE INDEX idx_rt_deadline ON reimbursement_tracking(claim_deadline) WHERE status NOT IN ('resolved', 'rejected');
+CREATE INDEX idx_rt_store ON reimbursement_tracking(store_id);
+
+-- ============================================================================
+-- 25. RECOVERY OPPORTUNITIES (Universal recovery queue)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS recovery_opportunities (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    category            VARCHAR(32) NOT NULL CHECK (
+                            category IN ('fba_reimbursement', 'refund_anomaly',
+                                          'fee_overcharge', 'ad_waste',
+                                          'inventory_liquidation')
+                        ),
+    sku                 VARCHAR(255),
+    estimated_value     NUMERIC(12,2) NOT NULL DEFAULT 0,
+    confidence_score    NUMERIC(5,4),
+    evidence_pack       JSONB,
+    status              VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK (
+                            status IN ('pending', 'approved', 'filed', 'resolved', 'rejected')
+                        ),
+    assigned_to         VARCHAR(128),
+    deadline            DATE,
+    notes               TEXT,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_ro_store_status ON recovery_opportunities(store_id, status);
+CREATE INDEX idx_ro_value ON recovery_opportunities(estimated_value DESC);
+CREATE INDEX idx_ro_category ON recovery_opportunities(category);
+
+-- ============================================================================
 -- VIEW: FBA leakage layer
 -- ============================================================================
 CREATE OR REPLACE VIEW v_fba_leakage AS

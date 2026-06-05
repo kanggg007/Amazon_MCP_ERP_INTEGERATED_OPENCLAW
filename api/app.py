@@ -20,6 +20,7 @@ from engines.ads_engine import AdsEngine
 from engines.voc_engine import VoCEngine
 from engines.return_refund_engine import ReturnRefundEngine
 from engines.profit_leakage_engine import ProfitLeakageEngine
+from engines.reimbursement_engine import ReimbursementEngine
 from db.connection import get_session
 # lazy import inside route handlers
 from auth.rbac import AdminRole
@@ -124,6 +125,11 @@ async def root():
             "GET /pld/sku/{store_id}/{sku} — True profit for one SKU",
             "GET /pld/scan/{store_id} — Scan all SKUs (min_loss filter)",
             "GET /pld/patterns/{store_id}/{sku} — AI pattern detection",
+            "POST /rds/scan — Scan for reimbursement opportunities",
+            "GET /rds/queue/{store_id} — Recovery queue",
+            "GET /rds/summary/{store_id} — Total recoverable value",
+            "GET /rds/evidence/{store_id}/{opp_id} — Evidence pack",
+            "POST /rds/file/{opp_id} — Mark opportunity as filed",
         ],
     }
 
@@ -408,6 +414,87 @@ async def get_profit_patterns(store_id: str, sku: str, days: int = 90, user_id: 
         "status": "ok",
         "patterns": patterns,
         "sku": sku,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+# ─── FBA Reimbursement Detection Routes ───
+
+
+@app.get("/rds/scan/{store_id}")
+async def scan_reimbursements(store_id: str, days_back: int = 90, user_id: str = "master"):
+    """Scan for FBA reimbursement opportunities."""
+    require_store_access(user_id, store_id, "read")
+    engine = ReimbursementEngine(store_id)
+    opportunities = engine.scan_all(days_back=days_back)
+    return {
+        "status": "ok",
+        "opportunities": opportunities,
+        "total": len(opportunities),
+        "total_value": round(sum(o.get("estimated_value", 0) for o in opportunities), 2),
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/rds/queue/{store_id}")
+async def get_recovery_queue(store_id: str, min_value: float = 100.0, user_id: str = "master"):
+    """Get pending recovery opportunities sorted by value."""
+    require_store_access(user_id, store_id, "read")
+    engine = ReimbursementEngine(store_id)
+    queue = engine.get_recovery_queue(min_value=min_value)
+    return {
+        "status": "ok",
+        "queue": queue,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/rds/summary/{store_id}")
+async def get_recovery_summary(store_id: str, user_id: str = "master"):
+    """Total recoverable value by category."""
+    require_store_access(user_id, store_id, "read")
+    engine = ReimbursementEngine(store_id)
+    summary = engine.get_recovery_summary()
+    return {
+        "status": "ok",
+        "summary": summary,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+class EvidenceRequest(BaseModel):
+    user_id: str = "master"
+    store_id: str
+    opportunity: dict  # previously scanned opportunity
+
+
+@app.post("/rds/evidence")
+async def generate_evidence(req: EvidenceRequest):
+    """Generate an evidence pack for a specific opportunity."""
+    require_store_access(req.user_id, req.store_id, "read")
+    engine = ReimbursementEngine(req.store_id)
+    pack = engine.generate_evidence_pack(req.opportunity)
+    return {
+        "status": "ok",
+        "evidence_pack": pack,
+        "store_id": req.store_id,
+        "requested_by": req.user_id,
+    }
+
+
+@app.post("/rds/file/{opp_id}")
+async def file_opportunity(opp_id: int, store_id: str, user_id: str = "master"):
+    """Mark an opportunity as filed (after human approval)."""
+    require_store_access(user_id, store_id, "write")
+    engine = ReimbursementEngine(store_id)
+    success = engine.file_opportunity(opp_id, filed_by=user_id)
+    return {
+        "status": "ok" if success else "error",
+        "opportunity_id": opp_id,
         "store_id": store_id,
         "requested_by": user_id,
     }
