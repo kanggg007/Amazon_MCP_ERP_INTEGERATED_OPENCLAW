@@ -115,10 +115,14 @@ async def root():
 
 @app.get("/health")
 async def health():
+    try:
+        stores = list(get_store_registry().active_stores.keys())
+    except:
+        stores = []
     return {
         "status": "ok",
         "version": "1.0.0",
-        "active_stores": list(get_store_registry().active_stores.keys()),
+        "active_stores": stores or ["none (check env vars)"],
     }
 
 
@@ -266,11 +270,14 @@ async def dashboard(store_id: str, user_id: str = "master",
 
 @app.on_event("startup")
 async def startup():
-    registry = get_store_registry()
-    rbac = get_rbac()
-    logger.info("API started. Stores: %s | Users: %s",
-                 list(registry.active_stores.keys()),
-                 [u.user_id for u in rbac.list_users()])
+    try:
+        registry = get_store_registry()
+        rbac = get_rbac()
+        logger.info("API started. Stores: %s | Users: %s",
+                     list(registry.active_stores.keys()) if registry.active_stores else "none",
+                     [u.user_id for u in rbac.list_users()])
+    except Exception as e:
+        logger.warning("Startup with limited config: %s", e)
 
 
 @app.on_event("shutdown")
