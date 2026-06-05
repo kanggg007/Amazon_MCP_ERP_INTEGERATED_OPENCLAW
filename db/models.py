@@ -250,6 +250,20 @@ class FeedbackTopic(Base):
     feedback = relationship("CustomerFeedback", back_populates="topics")
 
 
+class FeedbackLoop(Base):
+    __tablename__ = "feedback_loop"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    recommendation_id = Column(String(128), ForeignKey("recommendation_log.recommendation_id"), nullable=False)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    outcome = Column(String(32), nullable=False)
+    impact_metric = Column(String(64))
+    impact_value = Column(Numeric(14, 4))
+    threshold_adjusted = Column(Boolean, default=False)
+    previous_threshold = Column(Numeric(5, 4))
+    new_threshold = Column(Numeric(5, 4))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class RecommendationLog(Base):
     __tablename__ = "recommendation_log"
     id = Column(BigInteger, primary_key=True, autoincrement=True)
