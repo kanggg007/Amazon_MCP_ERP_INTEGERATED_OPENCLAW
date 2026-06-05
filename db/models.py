@@ -296,6 +296,122 @@ class AuditLog(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class Return(Base):
+    """Returns — operational return events from Returns API."""
+    __tablename__ = "returns"
+    __table_args__ = (
+        UniqueConstraint("store_id", "marketplace_id", "return_id"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    return_id = Column(String(128), nullable=False)
+    amazon_order_id = Column(String(64))
+    sku = Column(String(255))
+    asin = Column(String(32))
+    return_request_date = Column(DateTime(timezone=True))
+    return_reason = Column(Text)
+    return_status = Column(String(64))
+    return_quantity = Column(Integer, default=0)
+    return_type = Column(String(64))
+    resolution = Column(String(64))
+    rma_id = Column(String(128))
+    a_to_z_claim = Column(Boolean)
+    in_policy = Column(Boolean)
+    is_prime = Column(Boolean)
+    refunded_amount = Column(Numeric(12, 2))
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class Refund(Base):
+    """Refunds — financial truth from Finances API."""
+    __tablename__ = "refunds"
+    __table_args__ = (
+        UniqueConstraint("store_id", "marketplace_id", "refund_id"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    refund_id = Column(String(128), nullable=False)
+    amazon_order_id = Column(String(64))
+    sku = Column(String(255))
+    refund_amount = Column(Numeric(12, 2), default=0)
+    currency = Column(String(8), default="USD")
+    refund_date = Column(DateTime(timezone=True))
+    refund_reason_code = Column(String(128))
+    refund_type = Column(String(64))
+    posted_date = Column(DateTime(timezone=True))
+    quantity_refunded = Column(Integer, default=0)
+    fee_adjustment = Column(Numeric(12, 2), default=0)
+    return_shipping = Column(Numeric(12, 2), default=0)
+    tax_amount = Column(Numeric(12, 2), default=0)
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ReturnItem(Base):
+    """Return items — granular breakdown per return."""
+    __tablename__ = "return_items"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    return_id = Column(BigInteger, ForeignKey("returns.id", ondelete="CASCADE"), nullable=False)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    sku = Column(String(255))
+    asin = Column(String(32))
+    quantity = Column(Integer, default=0)
+    item_condition = Column(String(64))
+    reason_code = Column(String(128))
+    disposition = Column(String(64))
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class FinancialTransaction(Base):
+    """Financial transactions — source-of-truth from Finances API."""
+    __tablename__ = "financial_transactions"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    transaction_id = Column(String(128))
+    amazon_order_id = Column(String(64))
+    sku = Column(String(255))
+    transaction_type = Column(String(64), nullable=False)
+    transaction_subtype = Column(String(128))
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(8), default="USD")
+    posted_date = Column(DateTime(timezone=True))
+    settlement_id = Column(String(64))
+    fee_type = Column(String(64))
+    fee_amount = Column(Numeric(12, 2))
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CustomerLossEvent(Base):
+    """Customer loss events — unified analysis table for AI."""
+    __tablename__ = "customer_loss_events"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    return_id = Column(String(128))
+    refund_id = Column(String(128))
+    amazon_order_id = Column(String(64))
+    sku = Column(String(255))
+    asin = Column(String(32))
+    loss_type = Column(String(32), nullable=False)
+    amount_loss = Column(Numeric(12, 2), default=0)
+    currency = Column(String(8), default="USD")
+    reason = Column(Text)
+    event_date = Column(DateTime(timezone=True))
+    linked_to_return = Column(Boolean, default=False)
+    linked_to_refund = Column(Boolean, default=False)
+    is_anomaly = Column(Boolean, default=False)
+    anomaly_reason = Column(Text)
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def create_all_tables():
     """Create all tables (for development/testing)."""
     Base.metadata.create_all(bind=get_engine())

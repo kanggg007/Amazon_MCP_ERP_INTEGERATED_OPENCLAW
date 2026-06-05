@@ -631,4 +631,205 @@ CREATE TABLE IF NOT EXISTS po_line_items (
 CREATE INDEX idx_po_line_sku ON po_line_items(sku);
 CREATE INDEX idx_po_line_po ON po_line_items(po_id);
 
+-- ============================================================================
+-- 18. RETURNS (Operational return events from Returns API)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS returns (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    return_id           VARCHAR(128) NOT NULL,
+    amazon_order_id     VARCHAR(64),
+    sku                 VARCHAR(255),
+    asin                VARCHAR(32),
+    return_request_date TIMESTAMPTZ,
+    return_reason       TEXT,
+    return_status       VARCHAR(64),
+    return_quantity     INTEGER DEFAULT 0,
+    return_type         VARCHAR(64),
+    resolution          VARCHAR(64),
+    rma_id              VARCHAR(128),
+    label_cost          NUMERIC(12,2) DEFAULT 0,
+    label_currency      VARCHAR(8),
+    in_policy           BOOLEAN,
+    a_to_z_claim        BOOLEAN,
+    is_prime            BOOLEAN,
+    return_carrier      VARCHAR(128),
+    tracking_id         VARCHAR(128),
+    safe_t_action_reason VARCHAR(255),
+    safe_t_claim_id     VARCHAR(128),
+    safe_t_claim_state  VARCHAR(64),
+    safe_t_reimbursement NUMERIC(12,2),
+    refunded_amount     NUMERIC(12,2),
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, marketplace_id, return_id)
+);
+CREATE INDEX idx_returns_store_date ON returns(store_id, return_request_date);
+CREATE INDEX idx_returns_order ON returns(amazon_order_id);
+CREATE INDEX idx_returns_sku ON returns(sku);
+CREATE INDEX idx_returns_status ON returns(return_status);
+
+-- ============================================================================
+-- 19. REFUNDS (Financial truth from Finances API)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS refunds (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    refund_id           VARCHAR(128) NOT NULL,
+    amazon_order_id     VARCHAR(64),
+    sku                 VARCHAR(255),
+    refund_amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+    currency            VARCHAR(8) DEFAULT 'USD',
+    refund_date         TIMESTAMPTZ,
+    refund_reason_code  VARCHAR(128),
+    refund_type         VARCHAR(64),
+    posted_date         TIMESTAMPTZ,
+    quantity_refunded   INTEGER DEFAULT 0,
+    fee_adjustment      NUMERIC(12,2) DEFAULT 0,
+    return_shipping     NUMERIC(12,2) DEFAULT 0,
+    tax_amount          NUMERIC(12,2) DEFAULT 0,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, marketplace_id, refund_id)
+);
+CREATE INDEX idx_refunds_store_date ON refunds(store_id, refund_date);
+CREATE INDEX idx_refunds_order ON refunds(amazon_order_id);
+CREATE INDEX idx_refunds_sku ON refunds(sku);
+
+-- ============================================================================
+-- 20. RETURN_ITEMS (Granular breakdown per return)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS return_items (
+    id                  BIGSERIAL PRIMARY KEY,
+    return_id           BIGINT NOT NULL REFERENCES returns(id) ON DELETE CASCADE,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    sku                 VARCHAR(255),
+    asin                VARCHAR(32),
+    quantity            INTEGER DEFAULT 0,
+    item_condition      VARCHAR(64),
+    reason_code         VARCHAR(128),
+    disposition         VARCHAR(64),
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_ret_items_return ON return_items(return_id);
+CREATE INDEX idx_ret_items_sku ON return_items(sku);
+
+-- ============================================================================
+-- 21. FINANCIAL_TRANSACTIONS (Source-of-truth from Finances API)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS financial_transactions (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    transaction_id      VARCHAR(128),
+    amazon_order_id     VARCHAR(64),
+    sku                 VARCHAR(255),
+    transaction_type    VARCHAR(64) NOT NULL CHECK (
+                            transaction_type IN (
+                                'refund', 'fee', 'adjustment', 'reimbursement',
+                                'charge', 'payment', 'promotion', 'tax',
+                                'shipping', 'other'
+                            )
+                        ),
+    transaction_subtype VARCHAR(128),
+    amount              NUMERIC(12,2) NOT NULL,
+    currency            VARCHAR(8) DEFAULT 'USD',
+    posted_date         TIMESTAMPTZ,
+    settlement_id       VARCHAR(64),
+    fee_type            VARCHAR(64),
+    fee_amount          NUMERIC(12,2),
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_ft_store_date ON financial_transactions(store_id, posted_date);
+CREATE INDEX idx_ft_order ON financial_transactions(amazon_order_id);
+CREATE INDEX idx_ft_type ON financial_transactions(transaction_type);
+CREATE INDEX idx_ft_sku ON financial_transactions(sku);
+CREATE INDEX idx_ft_settlement ON financial_transactions(settlement_id);
+
+-- ============================================================================
+-- 22. CUSTOMER_LOSS_EVENTS (Unified analysis table for AI)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS customer_loss_events (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    return_id           VARCHAR(128),
+    refund_id           VARCHAR(128),
+    amazon_order_id     VARCHAR(64),
+    sku                 VARCHAR(255),
+    asin                VARCHAR(32),
+    loss_type           VARCHAR(32) NOT NULL CHECK (
+                            loss_type IN (
+                                'return_damage', 'refund', 'lost_in_fba',
+                                'partial_refund', 'customer_return',
+                                'disposal', 'reimbursement'
+                            )
+                        ),
+    amount_loss         NUMERIC(12,2) NOT NULL DEFAULT 0,
+    currency            VARCHAR(8) DEFAULT 'USD',
+    reason              TEXT,
+    event_date          TIMESTAMPTZ,
+    linked_to_return    BOOLEAN DEFAULT FALSE,
+    linked_to_refund    BOOLEAN DEFAULT FALSE,
+    is_anomaly          BOOLEAN DEFAULT FALSE,
+    anomaly_reason      TEXT,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_loss_store_date ON customer_loss_events(store_id, event_date);
+CREATE INDEX idx_loss_type ON customer_loss_events(loss_type);
+CREATE INDEX idx_loss_sku ON customer_loss_events(sku);
+CREATE INDEX idx_loss_order ON customer_loss_events(amazon_order_id);
+CREATE INDEX idx_loss_anomaly ON customer_loss_events(is_anomaly) WHERE is_anomaly = TRUE;
+
+-- ============================================================================
+-- VIEW: Returns with refunds (merged for AI queries)
+-- ============================================================================
+CREATE OR REPLACE VIEW v_return_refund_merged AS
+SELECT
+    r.id AS return_id,
+    r.store_id,
+    r.marketplace_id,
+    r.amazon_order_id,
+    r.sku,
+    r.return_request_date,
+    r.return_reason,
+    r.return_status,
+    r.refunded_amount AS return_refund_amount,
+    rf.refund_amount,
+    rf.refund_date,
+    rf.refund_reason_code,
+    rf.fee_adjustment,
+    rf.tax_amount,
+    r.a_to_z_claim,
+    r.in_policy,
+    r.return_type,
+    r.resolution
+FROM returns r
+LEFT JOIN refunds rf ON r.amazon_order_id = rf.amazon_order_id AND r.sku = rf.sku
+ORDER BY r.return_request_date DESC;
+
+-- ============================================================================
+-- VIEW: Profit leakage by SKU
+-- ============================================================================
+CREATE OR REPLACE VIEW v_profit_leakage AS
+SELECT
+    cle.store_id,
+    cle.sku,
+    cle.asin,
+    cle.loss_type,
+    COUNT(*) AS event_count,
+    SUM(cle.amount_loss) AS total_loss,
+    MIN(cle.event_date) AS first_event,
+    MAX(cle.event_date) AS last_event,
+    COUNT(DISTINCT cle.amazon_order_id) AS orders_affected
+FROM customer_loss_events cle
+GROUP BY cle.store_id, cle.sku, cle.asin, cle.loss_type
+ORDER BY total_loss DESC;
+
 COMMIT;

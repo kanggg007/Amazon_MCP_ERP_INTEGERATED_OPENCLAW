@@ -18,6 +18,7 @@ from engines.inventory_engine import InventoryEngine
 from engines.discrepancy_engine import DiscrepancyEngine
 from engines.ads_engine import AdsEngine
 from engines.voc_engine import VoCEngine
+from engines.return_refund_engine import ReturnRefundEngine
 from db.connection import get_session
 # lazy import inside route handlers
 from auth.rbac import AdminRole
@@ -114,6 +115,10 @@ async def root():
             "GET /users — List all users (Master only)",
             "DELETE /users/{user_id} — Deactivate user (Master only)",
             "GET /dashboard/{store_id} — Store dashboard",
+            "POST /finances/refunds — Fetch refunds from Finances API",
+            "POST /finances/reconcile — Reconcile loss events",
+            "GET /finances/loss/{store_id} — Profit leakage analysis",
+            "GET /finances/summary/{store_id} — Return/refund summary",
         ],
     }
 
@@ -262,6 +267,79 @@ async def dashboard(store_id: str, user_id: str = "master",
         "reimbursement": {"open": len(discrepancies), "estimated_recovery": round(total_recovery, 2)},
         "ads": tacos,
         "voc": {"top_complaints": complaints},
+    }
+
+
+# ─── Return & Refund Engine Routes ───
+
+
+class FetchRefundsRequest(BaseModel):
+    user_id: str = "master"
+    store_id: str
+    posted_after: Optional[str] = None
+    posted_before: Optional[str] = None
+    max_results: int = 100
+
+
+@app.post("/finances/refunds")
+async def fetch_refunds(req: FetchRefundsRequest):
+    """Pull refund events from SP-API Finances API."""
+    require_store_access(req.user_id, req.store_id, "read")
+    engine = ReturnRefundEngine(req.store_id)
+    events = engine.fetch_refunds_from_finances(
+        posted_after=req.posted_after,
+        posted_before=req.posted_before,
+        max_results=req.max_results,
+    )
+    stored = engine.store_refund_events(events)
+    return {
+        "status": "ok",
+        "fetched": len(events),
+        "stored": stored,
+        "store_id": req.store_id,
+        "requested_by": req.user_id,
+    }
+
+
+@app.post("/finances/reconcile")
+async def reconcile_losses(store_id: str, user_id: str = "master"):
+    """Reconcile refunds → returns → loss events for AI analysis."""
+    require_store_access(user_id, store_id, "write")
+    engine = ReturnRefundEngine(store_id)
+    reconciled = engine.reconcile_loss_events()
+    return {
+        "status": "ok",
+        "reconciled": reconciled,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/finances/loss/{store_id}")
+async def get_profit_leakage(store_id: str, sku: Optional[str] = None, user_id: str = "master"):
+    """Get profit leakage analysis by SKU."""
+    require_store_access(user_id, store_id, "read")
+    engine = ReturnRefundEngine(store_id)
+    leakage = engine.get_profit_leakage(sku=sku)
+    return {
+        "status": "ok",
+        "leakage": leakage,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/finances/summary/{store_id}")
+async def get_finance_summary(store_id: str, user_id: str = "master"):
+    """Get high-level return/refund summary for dashboard."""
+    require_store_access(user_id, store_id, "read")
+    engine = ReturnRefundEngine(store_id)
+    summary = engine.get_summary()
+    return {
+        "status": "ok",
+        "summary": summary,
+        "store_id": store_id,
+        "requested_by": user_id,
     }
 
 
