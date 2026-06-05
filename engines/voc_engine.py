@@ -184,6 +184,196 @@ class VoCEngine:
             "health": "good" if positive > negative * 3 else "needs_attention" if positive > negative else "critical",
         }
 
+    # ─── Enhanced: Source Tier Ranking ───
+
+    TIER_MAP = {
+        "amazon_review": 1,
+        "amazon_return": 2,
+        "amazon_qna": 3,
+        "amazon_support_ticket": 4,
+        "walmart_review": 5,
+        "tiktok_comment": 5,
+        "facebook_comment": 5,
+    }
+
+    TIER_LABELS = {1: "🏆 Reviews", 2: "🔄 Returns", 3: "❓ Q&A", 4: "🎫 Tickets", 5: "🌐 Social"}
+
+    def feedback_by_source(self, days: int = 30) -> list[dict]:
+        """Feedback volume grouped by source tier."""
+        start = date.today() - timedelta(days=days)
+        rows = self.db.query(
+            CustomerFeedback.source,
+            func.count(CustomerFeedback.id).label("count"),
+        ).filter(
+            CustomerFeedback.store_id == self.store_id,
+            CustomerFeedback.feedback_date >= start,
+        ).group_by(CustomerFeedback.source).all()
+
+        by_tier = {}
+        for r in rows:
+            tier = self.TIER_MAP.get(r.source, 5)
+            label = self.TIER_LABELS.get(tier, "Other")
+            if tier not in by_tier:
+                by_tier[tier] = {"tier": tier, "label": label, "sources": [], "count": 0}
+            by_tier[tier]["sources"].append({"source": r.source, "count": r.count})
+            by_tier[tier]["count"] += r.count
+
+        return [by_tier[t] for t in sorted(by_tier.keys())]
+
+    # ─── Enhanced: Trend Detection ───
+
+    def complaint_trend(self, topic: str = None, weeks: int = 8) -> list[dict]:
+        """Track complaint frequency week-over-week."""
+        from datetime import timedelta as td
+        end = date.today()
+        start = end - td(weeks=weeks * 7)
+
+        results = []
+        for w in range(weeks):
+            ws = end - td(weeks=(weeks - w) * 7)
+            we = ws + td(days=7)
+
+            q = self.db.query(func.count(FeedbackTopic.id)).join(
+                CustomerFeedback,
+                FeedbackTopic.feedback_id == CustomerFeedback.id,
+            ).filter(
+                CustomerFeedback.store_id == self.store_id,
+                CustomerFeedback.feedback_date >= ws,
+                CustomerFeedback.feedback_date < we,
+                CustomerFeedback.sentiment.in_(["negative", "neutral"]),
+            )
+            if topic:
+                q = q.filter(FeedbackTopic.topic == topic)
+
+            results.append({
+                "week": ws.isoformat(),
+                "count": q.scalar() or 0,
+            })
+
+        return results
+
+    # ─── Enhanced: Profit Impact ───
+
+    def complaint_profit_impact(self, days: int = 90) -> list[dict]:
+        """
+        Correlate complaints with profit impact.
+        Uses return/refund data to estimate how much each complaint topic costs.
+        """
+        start = date.today() - timedelta(days=days)
+
+        # Get top complaint topics with counts
+        topics = self.db.query(
+            FeedbackTopic.topic,
+            func.count(FeedbackTopic.id).label("count"),
+        ).join(
+            CustomerFeedback,
+            FeedbackTopic.feedback_id == CustomerFeedback.id,
+        ).filter(
+            CustomerFeedback.store_id == self.store_id,
+            CustomerFeedback.feedback_date >= start,
+            CustomerFeedback.sentiment == "negative",
+        ).group_by(FeedbackTopic.topic).order_by(
+            func.count(FeedbackTopic.id).desc()
+        ).limit(10).all()
+
+        # Get total refunds for context
+        from db.models import Refund
+        total_refunds = self.db.query(
+            func.coalesce(func.sum(Refund.refund_amount), 0)
+        ).filter(
+            Refund.store_id == self.store_id,
+            Refund.refund_date >= start,
+        ).scalar() or 0
+
+        # Get total returns count
+        from db.models import Return as ReturnModel
+        total_returns = self.db.query(
+            func.count(ReturnModel.id)
+        ).filter(
+            ReturnModel.store_id == self.store_id,
+            ReturnModel.return_request_date >= start,
+        ).scalar() or 0
+
+        # Damage-related refunds (approximation)
+        from db.models import CustomerLossEvent
+        damage_loss = self.db.query(
+            func.coalesce(func.sum(CustomerLossEvent.amount_loss), 0)
+        ).filter(
+            CustomerLossEvent.store_id == self.store_id,
+            CustomerLossEvent.event_date >= start,
+            CustomerLossEvent.loss_type.in_(["return_damage", "customer_return"]),
+        ).scalar() or 0
+
+        total_topics = sum(t.count for t in topics) if topics else 1
+        return [
+            {
+                "topic": t.topic,
+                "frequency": t.count,
+                "share_pct": round(t.count / total_topics * 100, 1),
+                "estimated_refund_cost": round(
+                    float(total_refunds) * (t.count / total_topics), 2
+                ),
+                "estimated_damage_cost": round(
+                    float(damage_loss) * (t.count / total_topics), 2
+                ),
+            }
+            for t in topics
+        ]
+
+    # ─── Enhanced: Monthly comparison ───
+
+    def monthly_comparison(self) -> list[dict]:
+        """Compare complaint counts between last month and current month."""
+        today = date.today()
+        this_month_start = today.replace(day=1)
+        last_month_end = this_month_start - timedelta(days=1)
+        last_month_start = last_month_end.replace(day=1)
+
+        def get_counts(start_dt, end_dt):
+            rows = self.db.query(
+                FeedbackTopic.topic,
+                func.count(FeedbackTopic.id).label("count"),
+            ).join(
+                CustomerFeedback,
+                FeedbackTopic.feedback_id == CustomerFeedback.id,
+            ).filter(
+                CustomerFeedback.store_id == self.store_id,
+                CustomerFeedback.feedback_date >= start_dt,
+                CustomerFeedback.feedback_date < end_dt,
+                CustomerFeedback.sentiment.in_(["negative", "neutral"]),
+            ).group_by(FeedbackTopic.topic).all()
+            return {r.topic: r.count for r in rows}
+
+        last = get_counts(last_month_start, this_month_start)
+        current = get_counts(this_month_start, today + timedelta(days=1))
+
+        all_topics = set(last.keys()) | set(current.keys())
+        results = []
+        for topic in sorted(all_topics):
+            lc = last.get(topic, 0)
+            cc = current.get(topic, 0)
+            results.append({
+                "topic": topic,
+                "last_month": lc,
+                "this_month": cc,
+                "change": cc - lc,
+                "pct_change": round((cc - lc) / lc * 100, 1) if lc > 0 else None,
+            })
+
+        return sorted(results, key=lambda x: abs(x.get("change", 0)), reverse=True)
+
+    # ─── Enhanced: Full VoC dashboard ───
+
+    def intelligence_dashboard(self, days: int = 90) -> dict:
+        """Complete VoC dashboard combining all analyses."""
+        return {
+            "top_complaints": self.top_complaints(days=days, limit=10),
+            "by_source": self.feedback_by_source(days=days),
+            "trends": self.complaint_trend(weeks=8),
+            "profit_impact": self.complaint_profit_impact(days=days),
+            "monthly_change": self.monthly_comparison(),
+        }
+
     def _extract_topics(self, text: str) -> List[str]:
         """Extract topics from text using keyword matching."""
         text_lower = text.lower()

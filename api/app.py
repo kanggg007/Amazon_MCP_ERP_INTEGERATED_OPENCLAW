@@ -130,6 +130,10 @@ async def root():
             "GET /rds/summary/{store_id} — Total recoverable value",
             "GET /rds/evidence/{store_id}/{opp_id} — Evidence pack",
             "POST /rds/file/{opp_id} — Mark opportunity as filed",
+            "GET /voc/dashboard/{store_id} — VoC intelligence dashboard",
+            "GET /voc/profit-impact/{store_id} — Complaints → profit correlation",
+            "GET /voc/trend/{store_id} — Monthly complaint trends",
+            "GET /voc/by-source/{store_id} — Feedback sources ranked by tier",
         ],
     }
 
@@ -495,6 +499,68 @@ async def file_opportunity(opp_id: int, store_id: str, user_id: str = "master"):
     return {
         "status": "ok" if success else "error",
         "opportunity_id": opp_id,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+# ─── Enhanced VoC Routes ───
+
+
+@app.get("/voc/dashboard/{store_id}")
+async def voc_intelligence(store_id: str, days: int = 90, user_id: str = "master",
+                           db: DBSession = Depends(get_db)):
+    """Complete VoC intelligence dashboard."""
+    require_store_access(user_id, store_id, "read")
+    engine = VoCEngine(db, store_id)
+    return {
+        "status": "ok",
+        **engine.intelligence_dashboard(days=days),
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/voc/profit-impact/{store_id}")
+async def voc_profit_impact(store_id: str, days: int = 90, user_id: str = "master",
+                            db: DBSession = Depends(get_db)):
+    """Correlate complaints with estimated profit loss."""
+    require_store_access(user_id, store_id, "read")
+    engine = VoCEngine(db, store_id)
+    impact = engine.complaint_profit_impact(days=days)
+    return {
+        "status": "ok",
+        "profit_impact": impact,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/voc/trend/{store_id}")
+async def voc_trend(store_id: str, topic: Optional[str] = None, weeks: int = 8,
+                    user_id: str = "master", db: DBSession = Depends(get_db)):
+    """Week-over-week complaint trends."""
+    require_store_access(user_id, store_id, "read")
+    engine = VoCEngine(db, store_id)
+    trend = engine.complaint_trend(topic=topic, weeks=weeks)
+    return {
+        "status": "ok",
+        "trend": trend,
+        "store_id": store_id,
+        "requested_by": user_id,
+    }
+
+
+@app.get("/voc/by-source/{store_id}")
+async def voc_by_source(store_id: str, days: int = 30, user_id: str = "master",
+                        db: DBSession = Depends(get_db)):
+    """Feedback volume by source tier."""
+    require_store_access(user_id, store_id, "read")
+    engine = VoCEngine(db, store_id)
+    by_source = engine.feedback_by_source(days=days)
+    return {
+        "status": "ok",
+        "by_source": by_source,
         "store_id": store_id,
         "requested_by": user_id,
     }
