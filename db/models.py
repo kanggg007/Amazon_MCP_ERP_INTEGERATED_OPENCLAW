@@ -11,7 +11,7 @@ from sqlalchemy import (
     Text, ForeignKey, Enum as SAEnum, UniqueConstraint, Index,
     CheckConstraint, func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMPTZ
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 
 from db.connection import get_engine
@@ -26,8 +26,8 @@ class Store(Base):
     marketplace_ids = Column(ARRAY(String), nullable=False)
     is_active = Column(Boolean, default=True)
     metadata_ = Column("metadata", JSONB, default={})
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class Product(Base):
@@ -48,8 +48,8 @@ class Product(Base):
     unit_cost = Column(Numeric(12, 4), default=0)
     is_active = Column(Boolean, default=True)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class InventorySnapshot(Base):
@@ -72,7 +72,7 @@ class InventorySnapshot(Base):
     forecast_depletion = Column(Date)
     snapshot_date = Column(Date, default=date.today)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class Order(Base):
@@ -85,7 +85,7 @@ class Order(Base):
     marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
     source = Column(String(32), default="amazon")
     amazon_order_id = Column(String(64), nullable=False)
-    purchase_date = Column(TIMESTAMPTZ)
+    purchase_date = Column(DateTime(timezone=True))
     order_status = Column(String(32))
     fulfillment_channel = Column(String(32))
     order_total_amount = Column(Numeric(12, 2))
@@ -95,7 +95,7 @@ class Order(Base):
     is_business_order = Column(Boolean, default=False)
     is_prime = Column(Boolean, default=False)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
 
 
@@ -114,7 +114,7 @@ class OrderItem(Base):
     item_price_amount = Column(Numeric(12, 2))
     shipping_price = Column(Numeric(12, 2))
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     order = relationship("Order", back_populates="items")
 
 
@@ -133,7 +133,7 @@ class InboundShipment(Base):
     total_units_received = Column(Integer, default=0)
     discrepancy_units = Column(Integer, default=0)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class ShipmentDiscrepancy(Base):
@@ -159,7 +159,7 @@ class ShipmentDiscrepancy(Base):
     evidence_ready = Column(Boolean, default=False)
     evidence_path = Column(Text)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class AdPerformance(Base):
@@ -183,7 +183,7 @@ class AdPerformance(Base):
     sales = Column(Numeric(12, 2), default=0)
     orders = Column(Integer, default=0)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class ProfitDailySnapshot(Base):
@@ -210,7 +210,7 @@ class ProfitDailySnapshot(Base):
     returns_cost = Column(Numeric(12, 2), default=0)
     other_costs = Column(Numeric(12, 2), default=0)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class CustomerFeedback(Base):
@@ -231,9 +231,9 @@ class CustomerFeedback(Base):
     body = Column(Text)
     sentiment = Column(String(16))
     is_verified_purchase = Column(Boolean, default=False)
-    feedback_date = Column(TIMESTAMPTZ)
+    feedback_date = Column(DateTime(timezone=True))
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     topics = relationship("FeedbackTopic", back_populates="feedback", cascade="all, delete-orphan")
 
 
@@ -246,7 +246,7 @@ class FeedbackTopic(Base):
     sentiment = Column(String(16))
     confidence_score = Column(Numeric(5, 4))
     keywords = Column(ARRAY(String))
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     feedback = relationship("CustomerFeedback", back_populates="topics")
 
 
@@ -261,11 +261,11 @@ class RecommendationLog(Base):
     risk_level = Column(String(16))
     human_action = Column(String(32), default="pending")
     actioned_by = Column(String(255))
-    actioned_at = Column(TIMESTAMPTZ)
+    actioned_at = Column(DateTime(timezone=True))
     before_state = Column(JSONB)
     after_state = Column(JSONB)
     raw_data = Column(JSONB)
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class AuditLog(Base):
@@ -279,7 +279,7 @@ class AuditLog(Base):
     before_state = Column(JSONB)
     after_state = Column(JSONB)
     status = Column(String(32), default="success")
-    created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 def create_all_tables():
