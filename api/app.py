@@ -21,17 +21,22 @@ from engines.voc_engine import VoCEngine
 from engines.return_refund_engine import ReturnRefundEngine
 from engines.profit_leakage_engine import ProfitLeakageEngine
 from engines.reimbursement_engine import ReimbursementEngine
+from api.direct_finances import router as direct_finances_router
 from db.connection import get_session
 # lazy import inside route handlers
-from auth.rbac import AdminRole
+from auth import get_store_registry
+from auth.rbac import AdminRole, RBACManager, AdminUser
 
 logger = logging.getLogger("amazon.api")
 
+# Router
+from api.direct_finances import router as direct_finances_router
 app = FastAPI(
     title="Amazon Operations Intelligence Platform",
     version="1.0.0",
     description="Multi-store Amazon FBA management with RBAC.",
 )
+app.include_router(direct_finances_router)
 
 
 # ─── Schemas ───
@@ -83,17 +88,20 @@ def get_db():
 
 def require_store_access(user_id: str, store_id: str, action: str = "read"):
     """Validate user has access to the given store."""
-    from auth import get_store_registry, check_store_access
     registry = get_store_registry()
     if not registry.is_valid_store(store_id):
         raise HTTPException(
             status_code=404,
             detail=f"Store '{store_id}' not found. Available: {list(registry.active_stores.keys())}",
         )
-    try:
-        check_store_access(user_id, store_id, action)
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    # Simple RBAC: Master has full access
+    rbac = RBACManager()
+    if action == "read":
+        if not rbac.check_read_access(user_id, store_id):
+            raise HTTPException(status_code=403, detail=f"User '{user_id}' cannot read store '{store_id}'")
+    elif action == "write":
+        if not rbac.check_write_access(user_id, store_id):
+            raise HTTPException(status_code=403, detail=f"User '{user_id}' cannot write to store '{store_id}'")
 
 
 # ─── Routes ───
@@ -170,7 +178,7 @@ async def propose_action(req: ActionRequest, db: DBSession = Depends(get_db)):
 @app.post("/action/approve", response_model=ActionResponse)
 async def approve_action(req: ApproveRequest, db: DBSession = Depends(get_db)):
     """Approve or reject a pending action. Master Admin only."""
-    rbac = get_rbac()
+    rbac = RBACManager()
     if not rbac.check_manage_users(req.actioned_by):
         raise HTTPException(status_code=403, detail="Only Master Admin can approve actions.")
     require_store_access(req.actioned_by, req.store_id, "write")
@@ -198,7 +206,7 @@ async def pending_actions(store_id: str, user_id: str = "master",
 @app.post("/users/create")
 async def create_user(req: CreateUserRequest):
     """Create a sub-admin user. Master Admin only."""
-    rbac = get_rbac()
+    rbac = RBACManager()
     if not rbac.check_manage_users(req.created_by):
         raise HTTPException(status_code=403, detail="Only Master Admin can create users.")
 
@@ -223,7 +231,7 @@ async def create_user(req: CreateUserRequest):
 @app.get("/users")
 async def list_users(user_id: str = "master"):
     """List all users. Master Admin only."""
-    rbac = get_rbac()
+    rbac = RBACManager()
     if not rbac.check_manage_users(user_id):
         raise HTTPException(status_code=403, detail="Only Master Admin can list users.")
     users = rbac.list_users()
@@ -237,7 +245,7 @@ async def list_users(user_id: str = "master"):
 @app.delete("/users/{target_user_id}")
 async def deactivate_user(target_user_id: str, actioned_by: str = "master"):
     """Deactivate a user. Master Admin only."""
-    rbac = get_rbac()
+    rbac = RBACManager()
     if not rbac.check_manage_users(actioned_by):
         raise HTTPException(status_code=403, detail="Only Master Admin can deactivate users.")
     try:
@@ -570,9 +578,9 @@ async def voc_by_source(store_id: str, days: int = 30, user_id: str = "master",
 @app.on_event("startup")
 async def startup():
     try:
-        from auth import get_store_registry, get_rbac
+        from auth import get_store_registry
         registry = get_store_registry()
-        rbac = get_rbac()
+        rbac = RBACManager()
         logger.info("API started. Stores: %s | Users: %s",
                      list(registry.active_stores.keys()) if registry.active_stores else "none",
                      [u.user_id for u in rbac.list_users()])

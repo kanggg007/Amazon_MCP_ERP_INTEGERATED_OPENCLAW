@@ -17,6 +17,7 @@ Tables:
 """
 
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -61,18 +62,64 @@ class ReturnRefundEngine:
         posted_after = posted_after or (datetime.utcnow() - timedelta(days=30)).isoformat() + "Z"
         posted_before = posted_before or datetime.utcnow().isoformat() + "Z"
 
-        client = self.token_mgr.get_sp_client()
-        endpoint = (
-            f"/finances/v0/financialEvents"
-            f"?PostedAfter={posted_after}&PostedBefore={posted_before}&MaxResults={max_results}"
-        )
+        # Fetch from Finances API using direct AWS SigV4 signing
+        import httpx, os, hashlib, hmac, json as json_mod
+        from urllib.parse import urlparse, quote
+        import os as os_mod
+        AK = os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID", "")
+        AS = os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY", "")
 
-        response = client.get(endpoint)
-        if response.status_code != 200:
-            logger.error(f"Finances API error: {response.status_code} {response.text[:200]}")
+        store_info = StoreRegistry.get(self.store_id)
+        if not store_info:
+            logger.error(f"Store {self.store_id} not found")
             return []
 
-        events = response.json().get("payload", {}).get("FinancialEvents", {})
+        cid = store_info.get("lwa_client_id", store_info.get("client_id", ""))
+        csec = store_info.get("lwa_client_secret", store_info.get("client_secret", ""))
+        ref = store_info.get("refresh_token", "")
+
+        def _sign(m, u, h, b):
+            p = urlparse(u)
+            ad = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+            ds = time.strftime("%Y%m%d", time.gmtime())
+            h["x-amz-date"] = ad
+            h["host"] = p.hostname
+            cu = quote(p.path, safe="/") or "/"
+            ch = "".join(f"{kl.lower()}:{v.strip()}\n" for kl, v in sorted(h.items()) if kl.lower() not in ("authorization",))
+            sh = ";".join(sorted(kl.lower() for kl in h if kl.lower() not in ("authorization",)))
+            ph = hashlib.sha256(b.encode()).hexdigest()
+            cr = "\n".join([m.upper(), cu, p.query, ch, sh, ph])
+            cs = f"{ds}/us-east-1/execute-api/aws4_request"
+            st = "\n".join(["AWS4-HMAC-SHA256", ad, cs, hashlib.sha256(cr.encode()).hexdigest()])
+            def h8(k, m):
+                if isinstance(k, str): k = k.encode()
+                return hmac.new(k, m.encode(), hashlib.sha256).digest()
+            sig = hmac.new(h8(h8(h8(h8(f"AWS4{AS}", ds), "us-east-1"), "execute-api"), "aws4_request"), st.encode(), hashlib.sha256).hexdigest()
+            h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
+            return h
+
+        with httpx.Client(timeout=30.0) as http:
+            r = http.post("https://api.amazon.com/auth/o2/token", json={
+                "grant_type": "refresh_token",
+                "client_id": cid,
+                "client_secret": csec,
+                "refresh_token": ref,
+            })
+            if r.status_code != 200:
+                logger.error(f"LWA token error: {r.status_code}")
+                return []
+            tk = r.json()["access_token"]
+
+            endpoint = f"https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter={posted_after}&MaxResults={max_results}"
+            h = {"x-amz-access-token": tk}
+            headers = _sign("GET", endpoint, h, "")
+
+            r2 = http.get(endpoint, headers=headers)
+            if r2.status_code != 200:
+                logger.error(f"Finances API error: {r2.status_code} {r2.text[:200]}")
+                return []
+
+            events = r2.json().get("payload", {}).get("FinancialEvents", {})
 
         # Collect all refund-related events
         refund_events = []

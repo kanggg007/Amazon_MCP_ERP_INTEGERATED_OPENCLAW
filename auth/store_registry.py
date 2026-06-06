@@ -85,6 +85,12 @@ class StoreRegistry:
     def all_stores(self) -> Dict[str, dict]:
         return dict(self._stores)
 
+    @staticmethod
+    def get(store_id: str) -> Optional[dict]:
+        """Static shorthand: get store by ID using the global registry."""
+        from auth import get_store_registry
+        return get_store_registry().get_store(store_id)
+
     def get_store(self, store_id: str) -> Optional[dict]:
         return self._stores.get(store_id)
 
