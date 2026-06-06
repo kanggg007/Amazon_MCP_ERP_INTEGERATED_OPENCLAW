@@ -1064,4 +1064,97 @@ CREATE TABLE IF NOT EXISTS support_cases (
 );
 
 
+
+-- ============================================================================
+-- 30. SEASONALITY INDEX (Monthly demand multipliers per SKU)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS seasonality_index (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    sku                 VARCHAR(255) NOT NULL,
+    month               INTEGER NOT NULL CHECK (month BETWEEN 1 AND 12),
+    seasonality_multiplier NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+    historical_sales_index NUMERIC(6,4),
+    confidence_score    NUMERIC(5,4),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku, month)
+);
+CREATE INDEX IF NOT EXISTS idx_si_sku ON seasonality_index(store_id, sku);
+CREATE INDEX IF NOT EXISTS idx_si_month ON seasonality_index(month);
+
+-- ============================================================================
+-- 31. INVENTORY FORECAST DAILY (Daily demand + coverage tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS inventory_forecast_daily (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    sku                 VARCHAR(255) NOT NULL,
+    forecast_date       DATE NOT NULL,
+    on_hand             INTEGER NOT NULL DEFAULT 0,
+    inbound_units       INTEGER NOT NULL DEFAULT 0,
+    daily_demand_base   NUMERIC(10,4) NOT NULL DEFAULT 0,
+    daily_demand_ads    NUMERIC(10,4) NOT NULL DEFAULT 0,
+    daily_demand_promo  NUMERIC(10,4) NOT NULL DEFAULT 0,
+    total_demand        NUMERIC(10,4) NOT NULL DEFAULT 0,
+    days_of_cover       NUMERIC(10,2) NOT NULL DEFAULT 0,
+    lead_time_days      INTEGER NOT NULL DEFAULT 60,
+    reorder_status      VARCHAR(16) CHECK (reorder_status IN ('safe', 'warning', 'critical')),
+    risk_level          VARCHAR(16) CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),
+    estimated_stockout_date DATE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku, forecast_date)
+);
+CREATE INDEX IF NOT EXISTS idx_ifd_sku ON inventory_forecast_daily(store_id, sku);
+CREATE INDEX IF NOT EXISTS idx_ifd_status ON inventory_forecast_daily(reorder_status);
+CREATE INDEX IF NOT EXISTS idx_ifd_date ON inventory_forecast_daily(forecast_date);
+
+-- ============================================================================
+-- 32. DEMAND FORECAST ADJUSTED (Seasonality + events + ads combined)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS demand_forecast_adjusted (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    sku                 VARCHAR(255) NOT NULL,
+    forecast_date       DATE NOT NULL,
+    base_demand         NUMERIC(10,4) NOT NULL DEFAULT 0,
+    seasonality_multiplier NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+    event_multiplier    NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+    ads_multiplier      NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+    promo_multiplier    NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+    final_demand        NUMERIC(10,4) NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku, forecast_date)
+);
+CREATE INDEX IF NOT EXISTS idx_dfa_sku ON demand_forecast_adjusted(store_id, sku);
+CREATE INDEX IF NOT EXISTS idx_dfa_date ON demand_forecast_adjusted(forecast_date);
+
+-- ============================================================================
+-- 33. INVENTORY RISK FORECAST (Per-SKU risk summary)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS inventory_risk_forecast (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    sku                 VARCHAR(255) NOT NULL,
+    current_on_hand     INTEGER NOT NULL DEFAULT 0,
+    days_of_cover_normal NUMERIC(10,2) NOT NULL DEFAULT 0,
+    days_of_cover_peak  NUMERIC(10,2) NOT NULL DEFAULT 0,
+    stockout_risk_normal VARCHAR(16) CHECK (stockout_risk_normal IN ('none', 'low', 'medium', 'high', 'critical')),
+    stockout_risk_peak  VARCHAR(16) CHECK (stockout_risk_peak IN ('none', 'low', 'medium', 'high', 'critical')),
+    recommended_po_qty  INTEGER NOT NULL DEFAULT 0,
+    recommended_order_date DATE,
+    estimated_stockout_normal DATE,
+    estimated_stockout_peak DATE,
+    lead_time_days      INTEGER NOT NULL DEFAULT 60,
+    confidence_score    NUMERIC(5,4),
+    status              VARCHAR(32) DEFAULT 'active',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku)
+);
+CREATE INDEX IF NOT EXISTS idx_irf_risk ON inventory_risk_forecast(stockout_risk_peak);
+CREATE INDEX IF NOT EXISTS idx_irf_status ON inventory_risk_forecast(status);
+CREATE INDEX IF NOT EXISTS idx_irf_store ON inventory_risk_forecast(store_id);
+
+
 COMMIT;

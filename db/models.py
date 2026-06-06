@@ -492,6 +492,91 @@ class CustomerLossEvent(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class SeasonalityIndex(Base):
+    """Monthly demand multipliers per SKU."""
+    __tablename__ = "seasonality_index"
+    __table_args__ = (
+        UniqueConstraint("store_id", "sku", "month"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    sku = Column(String(255), nullable=False)
+    month = Column(Integer, nullable=False)
+    seasonality_multiplier = Column(Numeric(6, 4), nullable=False, default=1.0)
+    historical_sales_index = Column(Numeric(6, 4))
+    confidence_score = Column(Numeric(5, 4))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class InventoryForecastDaily(Base):
+    """Daily demand + coverage tracking."""
+    __tablename__ = "inventory_forecast_daily"
+    __table_args__ = (
+        UniqueConstraint("store_id", "sku", "forecast_date"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    sku = Column(String(255), nullable=False)
+    forecast_date = Column(Date, nullable=False)
+    on_hand = Column(Integer, default=0)
+    inbound_units = Column(Integer, default=0)
+    daily_demand_base = Column(Numeric(10, 4), default=0)
+    daily_demand_ads = Column(Numeric(10, 4), default=0)
+    daily_demand_promo = Column(Numeric(10, 4), default=0)
+    total_demand = Column(Numeric(10, 4), default=0)
+    days_of_cover = Column(Numeric(10, 2), default=0)
+    lead_time_days = Column(Integer, default=60)
+    reorder_status = Column(String(16))
+    risk_level = Column(String(16))
+    estimated_stockout_date = Column(Date)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class DemandForecastAdjusted(Base):
+    """Seasonality + events + ads combined demand."""
+    __tablename__ = "demand_forecast_adjusted"
+    __table_args__ = (
+        UniqueConstraint("store_id", "sku", "forecast_date"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    sku = Column(String(255), nullable=False)
+    forecast_date = Column(Date, nullable=False)
+    base_demand = Column(Numeric(10, 4), default=0)
+    seasonality_multiplier = Column(Numeric(6, 4), default=1.0)
+    event_multiplier = Column(Numeric(6, 4), default=1.0)
+    ads_multiplier = Column(Numeric(6, 4), default=1.0)
+    promo_multiplier = Column(Numeric(6, 4), default=1.0)
+    final_demand = Column(Numeric(10, 4), default=0)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class InventoryRiskForecast(Base):
+    """Per-SKU risk summary."""
+    __tablename__ = "inventory_risk_forecast"
+    __table_args__ = (
+        UniqueConstraint("store_id", "sku"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    sku = Column(String(255), nullable=False)
+    current_on_hand = Column(Integer, default=0)
+    days_of_cover_normal = Column(Numeric(10, 2), default=0)
+    days_of_cover_peak = Column(Numeric(10, 2), default=0)
+    stockout_risk_normal = Column(String(16))
+    stockout_risk_peak = Column(String(16))
+    recommended_po_qty = Column(Integer, default=0)
+    recommended_order_date = Column(Date)
+    estimated_stockout_normal = Column(Date)
+    estimated_stockout_peak = Column(Date)
+    lead_time_days = Column(Integer, default=60)
+    confidence_score = Column(Numeric(5, 4))
+    status = Column(String(32), default="active")
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def create_all_tables():
     """Create all tables (for development/testing)."""
     Base.metadata.create_all(bind=get_engine())
