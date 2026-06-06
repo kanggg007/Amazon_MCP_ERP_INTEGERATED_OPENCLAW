@@ -135,6 +135,8 @@ async def root():
             "GET /pld/sku/{store_id}/{sku} — True profit for one SKU",
             "GET /pld/scan/{store_id} — Scan all SKUs (min_loss filter)",
             "GET /pld/patterns/{store_id}/{sku} — AI pattern detection",
+            "POST /pld/refresh-fba-rate/{store_id} — Refresh FBA fee rate per SKU",
+            "GET /pld/daily-profit/{store_id} — Daily estimated P&L with settlement correction",
             "POST /rds/scan — Scan for reimbursement opportunities",
             "GET /rds/queue/{store_id} — Recovery queue",
             "GET /rds/summary/{store_id} — Total recoverable value",
@@ -635,7 +637,79 @@ async def ccis_create_playbook(store_id: str, issue_type: str, risk_level: str,
     finally:
         session.close()
 
-@app.on_event("startup")
+
+# ─── Two-Tier P&L: Daily Estimate + Settlement Correction ───
+
+
+@app.get("/pld/fba-rate/{store_id}")
+async def get_fba_rate(store_id: str, user_id: str = "master"):
+    """Get historical FBA fee rate per SKU for daily profit estimation."""
+    require_store_access(user_id, store_id, "read")
+    from db.connection import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT sku, COUNT(*) as tx_count, 
+                   ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) as fees,
+                   SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as revenue
+            FROM financial_transactions 
+            WHERE store_id = :sid AND transaction_type = 'refund'
+            GROUP BY sku
+        """), {"sid": store_id}).fetchall()
+    rates = {}
+    for r in rows:
+        if r.revenue and r.revenue > 0:
+            rates[r.sku] = {
+                "fba_fee_rate": round(r.fees / r.revenue, 4),
+                "transactions": r.tx_count,
+            }
+    return {"status": "ok", "sku_fba_rates": rates, "store_id": store_id, "requested_by": user_id}
+
+
+@app.post("/pld/estimate-daily/{store_id}")
+async def estimate_daily_profit(store_id: str, revenue: float, sku: str = "",
+                                 cogs_rate: float = 0.5, ads_rate: float = 0.03,
+                                 user_id: str = "master"):
+    """Estimate daily profit using historical FBA fee rates.
+    Formula: Est. Profit = Revenue * (1 - FBA_rate - COGS_rate - ads_rate)
+    """
+    require_store_access(user_id, store_id, "read")
+    from db.connection import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+    
+    # Get historical FBA rate for this SKU
+    fba_rate = 0.50  # default if no data
+    if sku:
+        with engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT ABS(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END)) / 
+                       GREATEST(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 1) as rate
+                FROM financial_transactions 
+                WHERE store_id = :sid AND sku = :sku AND transaction_type = 'refund'
+            """), {"sid": store_id, "sku": sku}).fetchone()
+            if row and row.rate:
+                fba_rate = float(row.rate)
+    
+    estimated_fba = revenue * fba_rate
+    estimated_cogs = revenue * cogs_rate
+    estimated_ads = revenue * ads_rate
+    estimated_profit = revenue - estimated_fba - estimated_cogs - estimated_ads
+    margin_pct = estimated_profit / revenue if revenue > 0 else 0
+    
+    return {
+        "status": "ok",
+        "revenue": round(revenue, 2),
+        "fba_rate": round(fba_rate, 4),
+        "estimated_fba": round(estimated_fba, 2),
+        "estimated_cogs": round(estimated_cogs, 2),
+        "estimated_ads": round(estimated_ads, 2),
+        "estimated_profit": round(estimated_profit, 2),
+        "estimated_margin": round(margin_pct, 4),
+        "note": "Weekly settlement will correct these estimates with actual fees",
+        "store_id": store_id,
+    }
 async def startup():
     try:
         from auth import get_store_registry
