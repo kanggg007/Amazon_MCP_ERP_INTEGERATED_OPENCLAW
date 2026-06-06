@@ -34,23 +34,33 @@ async def run_migration():
     try:
         from db.connection import get_engine
         from sqlalchemy import text
-        from sqlalchemy.exc import ProgrammingError
         engine = get_engine()
+        # Read only the NEW tables (sections 18-25 + views)
         with open('db/schema.sql') as f:
-            sql_lines = f.read()
-        statements = [s.strip() for s in sql_lines.split(';') if s.strip()]
+            text_content = f.read()
+        # Find the last COMMIT and take everything after it
+        last_commit = text_content.rfind("COMMIT;")
+        new_sql = text_content[last_commit + len("COMMIT;"):] if last_commit >= 0 else text_content
+        # Also include sections 18-25 between the COMMIT and final COMMIT
+        # Actually, let's just execute the whole file but properly
+        statements = [s.strip() for s in text_content.split(';') if s.strip()]
         success, errors = 0, 0
         with engine.connect() as conn:
             for stmt in statements:
                 if stmt and not stmt.startswith('--') and len(stmt) > 5:
-                    try:
-                        conn.execute(text(stmt + ';'))
-                        conn.commit()
-                        success += 1
-                    except Exception:
-                        conn.rollback()
-                        errors += 1
-        return {"status": "ok", "message": f"{success} ok, {errors} skipped (already exist)"}
+                    # Skip BEGIN and COMMIT
+                    if stmt.upper() in ('BEGIN', 'COMMIT'):
+                        continue
+                    # Only execute CREATE TABLE/INDEX/VIEW
+                    if 'CREATE TABLE' in stmt.upper() or 'CREATE INDEX' in stmt.upper() or 'CREATE OR REPLACE VIEW' in stmt.upper() or 'ALTER' in stmt.upper() or 'CREATE TRIGGER' in stmt.upper() or 'CREATE FUNCTION' in stmt.upper():
+                        try:
+                            conn.execute(text(stmt + ';'))
+                            conn.commit()
+                            success += 1
+                        except Exception as e2:
+                            conn.rollback()
+                            errors += 1
+        return {"status": "ok", "message": f"{success} created, {errors} skipped"}
     except Exception as e:
         return {"status": "error", "message": str(e)[:300]}
 
