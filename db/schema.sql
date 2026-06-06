@@ -1183,4 +1183,39 @@ CREATE TABLE IF NOT EXISTS supplier_lead_times (
 CREATE INDEX IF NOT EXISTS idx_slt_sku ON supplier_lead_times(store_id, sku);
 
 
+
+-- ============================================================================
+-- 34. SUPPLIER_LEAD_TIMES (Per-SKU manufacturing + logistics + shipping routes)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS supplier_lead_times (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    sku                 VARCHAR(255) NOT NULL,
+    supplier_name       VARCHAR(255),
+    factory_location    VARCHAR(128),
+    origin_port         VARCHAR(128),
+    destination_port    VARCHAR(128),
+    destination_country VARCHAR(64),
+    shipping_method     VARCHAR(32) DEFAULT 'sea' CHECK (shipping_method IN ('sea', 'air', 'express', 'rail')),
+    carrier             VARCHAR(128),
+    factory_lead_days   INTEGER NOT NULL DEFAULT 30,
+    logistics_days      INTEGER NOT NULL DEFAULT 25,
+    customs_buffer_days INTEGER NOT NULL DEFAULT 5,
+    total_lead_days     INTEGER GENERATED ALWAYS AS (factory_lead_days + logistics_days + customs_buffer_days) STORED,
+    air_lead_days       INTEGER,
+    peak_season_surcharge_days INTEGER DEFAULT 0,
+    reliability_score   NUMERIC(5,4),
+    cost_per_unit       NUMERIC(10,2),
+    currency            VARCHAR(8) DEFAULT 'USD',
+    notes               TEXT,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku, shipping_method)
+);
+CREATE INDEX IF NOT EXISTS idx_slt_sku ON supplier_lead_times(store_id, sku);
+CREATE INDEX IF NOT EXISTS idx_slt_route ON supplier_lead_times(origin_port, destination_port);
+CREATE INDEX IF NOT EXISTS idx_slt_country ON supplier_lead_times(destination_country);
+
+
 COMMIT;

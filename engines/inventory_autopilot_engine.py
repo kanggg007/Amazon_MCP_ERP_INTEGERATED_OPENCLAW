@@ -39,9 +39,40 @@ class InventoryAutopilotEngine:
     DEFAULT_LEAD_TIME_DAYS = 60
     SAFETY_BUFFER_DAYS = 15
 
-    def get_lead_time(self) -> int:
-        """Get per-SKU lead time from supplier_lead_times table.
-        Falls back to default if not configured.
+    # Common China → World sea freight routes (days)
+    SHIPPING_ROUTES = {
+        ("shenzhen", "us_west"): 18, ("shenzhen", "us_east"): 28,
+        ("shenzhen", "canada"): 22, ("shenzhen", "uk"): 30,
+        ("shenzhen", "germany"): 32, ("shenzhen", "australia"): 20,
+        ("shenzhen", "japan"): 8, ("shenzhen", "mexico"): 25,
+        ("ningbo", "us_west"): 16, ("ningbo", "us_east"): 26,
+        ("ningbo", "europe"): 30, ("shanghai", "us_west"): 14,
+        ("shanghai", "japan"): 6, ("shanghai", "australia"): 18,
+        ("yantian", "us_west"): 16, ("yantian", "us_east"): 27,
+        ("guangzhou", "us_west"): 18, ("guangzhou", "southeast_asia"): 7,
+    }
+
+    def get_route_days(self, origin: str = None, dest: str = None) -> int:
+        """Estimate sea freight days based on origin/destination ports."""
+        if origin and dest:
+            origin_lower = origin.lower().split(",")[0].split(" ")[0]
+            dest_lower = dest.lower().split(",")[0].split(" ")[0]
+            for (o, d), days in self.SHIPPING_ROUTES.items():
+                if o in origin_lower and d in dest_lower:
+                    return days
+                if o in origin_lower:
+                    for d_key in [dest_lower, dest_lower[:3]]:
+                        if d_key in d:
+                            return days
+            for (o, d), days in self.SHIPPING_ROUTES.items():
+                if o in origin_lower:
+                    return days  # best guess
+        return 25  # default sea freight
+
+    def get_lead_time(self) -> dict:
+        """Get per-SKU lead time breakdown.
+        Returns dict with factory, logistics, route info.
+        Falls back to defaults if not configured.
         """
         session = get_session()
         try:
@@ -50,12 +81,38 @@ class InventoryAutopilotEngine:
                 SupplierLeadTime.store_id == self.store_id,
                 SupplierLeadTime.sku == self.sku,
                 SupplierLeadTime.is_active == True,
+                SupplierLeadTime.shipping_method == "sea",
             ).first()
             if slt:
-                return slt.factory_lead_days + slt.logistics_days + slt.customs_buffer_days
-            return self.DEFAULT_LEAD_TIME_DAYS
-        except Exception:
-            return self.DEFAULT_LEAD_TIME_DAYS
+                return {
+                    "factory_days": slt.factory_lead_days,
+                    "logistics_days": slt.logistics_days,
+                    "customs_days": slt.customs_buffer_days,
+                    "total": slt.factory_lead_days + slt.logistics_days + slt.customs_buffer_days,
+                    "origin": slt.origin_port or "China",
+                    "destination": slt.destination_port or "Unknown",
+                    "carrier": slt.carrier or "Unknown",
+                    "shipping_method": slt.shipping_method,
+                }
+            # Estimate from route
+            route_days = self.get_route_days("shenzhen", "us_west")
+            return {
+                "factory_days": 30,
+                "logistics_days": route_days,
+                "customs_days": 5,
+                "total": 30 + route_days + 5,
+                "origin": "Shenzhen, China",
+                "destination": "US West Coast",
+                "note": "Estimated from defaults — configure supplier_lead_times for accuracy",
+            }
+        except Exception as e:
+            return {
+                "factory_days": 30,
+                "logistics_days": 25,
+                "customs_days": 5,
+                "total": 60,
+                "note": "Using defaults",
+            }
         finally:
             session.close()
 
@@ -174,7 +231,11 @@ class InventoryAutopilotEngine:
         Days of Cover vs Lead Time → 3-stage risk system.
         """
         on_hand = on_hand or self.get_current_inventory()
-        lead_time_days = lead_time_days or self.get_lead_time()
+        lt_info = self.get_lead_time()
+        if isinstance(lt_info, dict):
+            lead_time_days = lead_time_days or lt_info.get("total", self.DEFAULT_LEAD_TIME_DAYS)
+        else:
+            lead_time_days = lead_time_days or self.DEFAULT_LEAD_TIME_DAYS
         base_demand = self.calculate_base_demand()
         current_month = date.today().month
         seasonality = self.get_seasonality_multiplier(current_month)

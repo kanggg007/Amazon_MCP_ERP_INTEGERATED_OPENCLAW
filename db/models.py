@@ -579,22 +579,29 @@ class InventoryRiskForecast(Base):
 
 
 class SupplierLeadTime(Base):
-    """Per-SKU supplier lead time configuration."""
+    """Per-SKU supplier lead time with shipping route details."""
     __tablename__ = "supplier_lead_times"
     __table_args__ = (
-        UniqueConstraint("store_id", "sku"),
+        UniqueConstraint("store_id", "sku", "shipping_method"),
     )
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
     sku = Column(String(255), nullable=False)
     supplier_name = Column(String(255))
+    factory_location = Column(String(128))
+    origin_port = Column(String(128))
+    destination_port = Column(String(128))
+    destination_country = Column(String(64))
+    shipping_method = Column(String(32), default="sea")
+    carrier = Column(String(128))
     factory_lead_days = Column(Integer, nullable=False, default=30)
     logistics_days = Column(Integer, nullable=False, default=25)
     customs_buffer_days = Column(Integer, nullable=False, default=5)
-    shipping_method = Column(String(32), default="sea")
     air_lead_days = Column(Integer)
-    season_peak_surcharge = Column(Numeric(5, 2), default=1.0)
+    peak_season_surcharge_days = Column(Integer, default=0)
     reliability_score = Column(Numeric(5, 4))
+    cost_per_unit = Column(Numeric(10, 2))
+    currency = Column(String(8), default="USD")
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
