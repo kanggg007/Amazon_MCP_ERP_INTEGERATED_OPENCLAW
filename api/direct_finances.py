@@ -32,8 +32,8 @@ async def run_migration():
     """Run database schema migration."""
     import os, sys
     try:
-        from db.connection import engine as db_engine
-        conn = db_engine.raw_connection()
+        from db.connection import get_engine
+        conn = get_engine().raw_connection()
         with open('db/schema.sql') as f:
             sql = f.read()
         conn.executescript(sql)
