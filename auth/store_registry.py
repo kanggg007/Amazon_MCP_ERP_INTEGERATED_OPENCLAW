@@ -70,6 +70,13 @@ class StoreRegistry:
                 "has_sp_api": bool(secrets.get("lwa_client_id")),
                 "has_walmart": bool(secrets.get("walmart_client_id")),
                 "has_tiktok": bool(secrets.get("tiktok_shop_cipher")),
+                # SP-API credentials (for engines that need them)
+                "lwa_client_id": secrets.get("lwa_client_id", ""),
+                "lwa_client_secret": secrets.get("lwa_client_secret", ""),
+                "refresh_token": secrets.get("refresh_token", ""),
+                "aws_access_key_id": secrets.get("aws_access_key_id", ""),
+                "aws_secret_access_key": secrets.get("aws_secret_access_key", ""),
+                "aws_iam_role_arn": secrets.get("aws_iam_role_arn", ""),
             }
 
         if not self._stores:
