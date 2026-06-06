@@ -27,6 +27,13 @@ def _sign(m, u, h, b):
     h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
     return h
 
+@router.get("/test/env")
+async def test_env():
+    """Dump available env vars (safe keys only)."""
+    import os
+    store_keys = [k for k in os.environ if k.startswith('STORE_')]
+    return {'store_env_keys': sorted(store_keys)}
+
 @router.get("/test/finances/{store_env}")
 async def test_finances(store_env: str = "STORE_02"):
     """Test: fetch refunds directly from Finances API."""
