@@ -380,6 +380,42 @@ CREATE TABLE IF NOT EXISTS recovery_opportunities (
     deadline DATE, notes TEXT, raw_data JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS customer_messages (
+    id BIGSERIAL PRIMARY KEY, store_id VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id VARCHAR(32) DEFAULT 'ATVPDKIKX0DER', message_id VARCHAR(128) NOT NULL,
+    amazon_order_id VARCHAR(64), customer_id VARCHAR(128), sku VARCHAR(255), asin VARCHAR(32),
+    subject TEXT, body TEXT, message_type VARCHAR(64), priority VARCHAR(16),
+    sentiment VARCHAR(16), status VARCHAR(32) DEFAULT 'pending',
+    customer_value NUMERIC(10,2) DEFAULT 0, refund_probability NUMERIC(5,4) DEFAULT 0,
+    expected_loss NUMERIC(10,2) DEFAULT 0, received_date TIMESTAMPTZ,
+    raw_data JSONB, created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (store_id, marketplace_id, message_id)
+);
+CREATE TABLE IF NOT EXISTS support_playbooks (
+    id BIGSERIAL PRIMARY KEY, store_id VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    issue_type VARCHAR(64) NOT NULL, risk_level VARCHAR(16) NOT NULL,
+    approved_resolution VARCHAR(255) NOT NULL,
+    template_subject TEXT, template_body TEXT NOT NULL,
+    requires_approval BOOLEAN DEFAULT TRUE, is_active BOOLEAN DEFAULT TRUE,
+    created_by VARCHAR(128), created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS message_drafts (
+    id BIGSERIAL PRIMARY KEY, message_id BIGINT NOT NULL REFERENCES customer_messages(id) ON DELETE CASCADE,
+    store_id VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    draft_reply TEXT NOT NULL, confidence NUMERIC(5,4),
+    approval_required BOOLEAN DEFAULT TRUE, approval_status VARCHAR(32) DEFAULT 'pending',
+    approved_by VARCHAR(128), approved_at TIMESTAMPTZ, notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS support_cases (
+    id BIGSERIAL PRIMARY KEY, store_id VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id VARCHAR(32) DEFAULT 'ATVPDKIKX0DER', message_id BIGINT REFERENCES customer_messages(id),
+    amazon_order_id VARCHAR(64), sku VARCHAR(255), issue_type VARCHAR(64) NOT NULL,
+    resolution VARCHAR(255), resolution_cost NUMERIC(12,2) DEFAULT 0,
+    status VARCHAR(32) DEFAULT 'open', assigned_to VARCHAR(128),
+    resolved_at TIMESTAMPTZ, notes TEXT, raw_data JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 """
 
 
