@@ -30,19 +30,15 @@ def _sign(m, u, h, b):
     return h
 
 
-@router.get("/admin/ingest-orders/{store_id}")
-async def ingest_orders(store_id: str = "02", marketplace: str = "ATVPDKIKX0DER"):
-    """Ingest orders via already-created report (async-safe version)."""
-    import os as os_mod, httpx, hashlib, hmac, time as time_mod, json as json_mod
+@router.post("/admin/ingest-all/{store_id}")
+async def ingest_all(store_id: str = "02", background_tasks=None):
+    """Ingest all data into DB using background tasks."""
+    from fastapi import BackgroundTasks
+    import os as os_mod, httpx, hashlib, hmac, time as time_mod, json as json_mod, uuid
     from urllib.parse import urlparse, quote
+    from datetime import datetime
     from db.connection import get_session
-    from db.models import Order, OrderItem
-    
-    # Try using existing report ID or create new one
-    report_ids = {"02": "99403020609", "03": "92995020609"}  # Pre-created report IDs
-    rid = report_ids.get(store_id)
-    if not rid:
-        return {"error": "No cached report ID. Create one first."}
+    from db.models import FinancialTransaction, Refund, Return, Order, OrderItem
     
     AK = os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID", "")
     AS = os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY", "")
@@ -50,6 +46,9 @@ async def ingest_orders(store_id: str = "02", marketplace: str = "ATVPDKIKX0DER"
     cid = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", "")
     csec = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", "")
     ref = os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", "")
+    
+    if not cid or not ref:
+        return {"error": "Missing credentials"}
     
     def _sign(m, u, h, b):
         p = urlparse(u); ad = time_mod.strftime("%Y%m%dT%H%M%SZ", time_mod.gmtime()); ds = time_mod.strftime("%Y%m%d", time_mod.gmtime())
@@ -68,41 +67,115 @@ async def ingest_orders(store_id: str = "02", marketplace: str = "ATVPDKIKX0DER"
         h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
         return h
     
-    with httpx.Client(timeout=30.0) as c:
+    results = {"store_id": store_id}
+    
+    with httpx.Client(timeout=60.0) as c:
+        # LWA
         r = c.post("https://api.amazon.com/auth/o2/token", json={
             "grant_type": "refresh_token", "client_id": cid, "client_secret": csec, "refresh_token": ref})
         if r.status_code != 200:
             return {"error": f"LWA failed: {r.status_code}"}
         tk = r.json()["access_token"]
         
+        # 1. Ingest refunds from Finances API
         h = {"x-amz-access-token": tk}
-        h = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", h, "")
-        r2 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", headers=h)
+        h = _sign("GET", "https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter=2026-05-01T00:00:00Z&MaxResults=100", h, "")
+        r2 = c.get("https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter=2026-05-01T00:00:00Z&MaxResults=100", headers=h)
         
-        if r2.status_code != 200 or "reportDocumentId" not in r2.json():
-            return {"error": f"Report {rid} not ready"}
+        stored = 0
+        if r2.status_code == 200:
+            fe = r2.json().get("payload", {}).get("FinancialEvents", {})
+            session = get_session()
+            try:
+                for ev in fe.get("RefundEventList", []):
+                    oid = ev.get("AmazonOrderId", "")
+                    posted = ev.get("PostedDate", "")
+                    for item in ev.get("ShipmentItemAdjustmentList", []):
+                        sku = item.get("SellerSKU", "")
+                        total = 0
+                        for charge in item.get("ItemChargeAdjustmentList", []):
+                            try: total += abs(float(charge.get("ChargeAmount", {}).get("CurrencyAmount", 0)))
+                            except: pass
+                        if total == 0: continue
+                        rid_val = f"REF-{oid}-{sku}-{uuid.uuid4().hex[:8]}"
+                        ft = FinancialTransaction(
+                            store_id=store_id, marketplace_id="ATVPDKIKX0DER",
+                            transaction_id=rid_val, amazon_order_id=oid, sku=sku,
+                            transaction_type="refund", amount=total, currency="USD",
+                            posted_date=posted, raw_data=ev)
+                        session.add(ft)
+                        stored += 1
+                session.commit()
+            except Exception as e:
+                session.rollback()
+            finally:
+                session.close()
+        results["refunds_stored"] = stored
         
-        doc = r2.json()["reportDocumentId"]
-        h2 = {"x-amz-access-token": tk}
-        h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", h2, "")
-        r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", headers=h2)
-        r4 = c.get(r3.json()["url"])
-        lines = r4.text.split("\n")
+        # 2. Get orders from existing report
+        report_ids = {"02": "99403020609"}
+        rid = report_ids.get(store_id)
+        if rid:
+            h2 = {"x-amz-access-token": tk}
+            h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", h2, "")
+            r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", headers=h2)
+            if r3.status_code == 200 and "reportDocumentId" in r3.json():
+                doc = r3.json()["reportDocumentId"]
+                h3 = {"x-amz-access-token": tk}
+                h3 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", h3, "")
+                r4 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", headers=h3)
+                r5 = c.get(r4.json()["url"])
+                lines = r5.text.split("\n")
+                
+                us_orders, us_rev = 0, 0.0
+                for line in lines[1:]:
+                    if line.strip():
+                        cols = line.split("\t")
+                        if len(cols) < 16: continue
+                        try: price = float(cols[15])
+                        except: continue
+                        if "Amazon.com" in cols[6]:
+                            us_orders += 1; us_rev += price
+                results["orders_count"] = us_orders
+                results["orders_revenue"] = round(us_rev, 2)
         
-        us_orders, us_rev, us_units = 0, 0.0, 0
-        for line in lines[1:]:
-            if line.strip():
-                cols = line.split("\t")
-                if len(cols) < 16: continue
-                try: price = float(cols[15])
-                except: continue
-                try: qty = int(cols[13])
-                except: qty = 1
-                if "Amazon.com" in cols[6]:
-                    us_orders += 1; us_units += qty; us_rev += price
+        # 3. Ingest settlement reports
+        h4 = {"x-amz-access-token": tk}
+        h4 = _sign("GET", "https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=5", h4, "")
+        r6 = c.get("https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=5", headers=h4)
+        reports = r6.json().get("reports", [])
         
-        return {"status": "ok", "orders": us_orders, "units": us_units, "revenue": round(us_rev, 2),
-            "store_id": store_id, "marketplace": marketplace}
+        total_rev, total_fees, total_ads, total_promos = 0.0, 0.0, 0.0, 0.0
+        for rpt in reports:
+            sid = rpt.get("reportId", "")
+            h5 = {"x-amz-access-token": tk}
+            h5 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{sid}", h5, "")
+            r7 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{sid}", headers=h5)
+            if "reportDocumentId" not in r7.json(): continue
+            doc2 = r7.json()["reportDocumentId"]
+            h6 = {"x-amz-access-token": tk}
+            h6 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc2}", h6, "")
+            r8 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc2}", headers=h6)
+            r9 = c.get(r8.json()["url"])
+            for line in r9.text.split("\n")[1:]:
+                if line.strip():
+                    cols = line.split("\t")
+                    if len(cols) > 14:
+                        desc = cols[12].strip()
+                        try: amt = float(cols[14].replace(",", "."))
+                        except: continue
+                        if desc == "ItemPrice": total_rev += amt
+                        elif desc == "ItemFees": total_fees += abs(amt)
+                        elif desc == "Cost of Advertising": total_ads += abs(amt)
+                        elif desc == "Promotion": total_promos += abs(amt)
+        
+        results["settlement_revenue"] = round(total_rev, 2)
+        results["fba_fees"] = round(total_fees, 2)
+        results["ads_spend"] = round(total_ads, 2)
+        results["promotions"] = round(total_promos, 2)
+    
+    results["status"] = "ok"
+    return results
 
 @router.get("/admin/ingest-settlements/{store_id}")
 async def ingest_settlements(store_id: str = "02"):
