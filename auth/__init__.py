@@ -70,8 +70,8 @@ async def get_access_token(store_id: str) -> str:
 def get_rbac():
     """Get the RBAC singleton."""
     _ensure_initialized()
-    from auth.rbac import AdminRole, AdminUser
-    rbac = AdminRole()
+    from auth.rbac import RBACManager, AdminUser
+    rbac = RBACManager()
     # Load existing users from env or defaults
     import os
     master_id = os.environ.get("MASTER_ADMIN_ID", "master")
