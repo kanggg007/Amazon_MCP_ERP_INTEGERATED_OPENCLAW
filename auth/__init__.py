@@ -126,3 +126,5 @@ async def close():
     """Clean up auth resources."""
     if _token_manager:
         await _token_manager.close()
+
+# FORCE-REBUILD-1780726558
