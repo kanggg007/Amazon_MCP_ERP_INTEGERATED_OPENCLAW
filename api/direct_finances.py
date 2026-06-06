@@ -124,10 +124,14 @@ async def ingest_all(store_id: str = "02", background_tasks=None):
                 h3 = {"x-amz-access-token": tk}
                 h3 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", h3, "")
                 r4 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", headers=h3)
-                r5 = c.get(r4.json()["url"])
-                lines = r5.text.split("\n")
-                
-                us_orders, us_rev = 0, 0.0
+                doc_data = r4.json()
+                doc_url = doc_data.get("url", doc_data.get("documentUrl", ""))
+                if not doc_url:
+                    results["orders_error"] = "no url"
+                else:
+                    r5 = c.get(doc_url)
+                    lines = r5.text.split("\n")
+                    us_orders, us_rev = 0, 0.0
                 for line in lines[1:]:
                     if line.strip():
                         cols = line.split("\t")
@@ -156,7 +160,10 @@ async def ingest_all(store_id: str = "02", background_tasks=None):
             h6 = {"x-amz-access-token": tk}
             h6 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc2}", h6, "")
             r8 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc2}", headers=h6)
-            r9 = c.get(r8.json()["url"])
+            doc_data2 = r8.json()
+            doc_url2 = doc_data2.get("url", doc_data2.get("documentUrl", ""))
+            if not doc_url2: continue
+            r9 = c.get(doc_url2)
             for line in r9.text.split("\n")[1:]:
                 if line.strip():
                     cols = line.split("\t")
