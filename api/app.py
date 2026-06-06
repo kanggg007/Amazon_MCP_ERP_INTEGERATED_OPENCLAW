@@ -83,6 +83,7 @@ def get_db():
 
 def require_store_access(user_id: str, store_id: str, action: str = "read"):
     """Validate user has access to the given store."""
+    from auth import get_store_registry, check_store_access
     registry = get_store_registry()
     if not registry.is_valid_store(store_id):
         raise HTTPException(
