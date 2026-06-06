@@ -1157,4 +1157,30 @@ CREATE INDEX IF NOT EXISTS idx_irf_status ON inventory_risk_forecast(status);
 CREATE INDEX IF NOT EXISTS idx_irf_store ON inventory_risk_forecast(store_id);
 
 
+
+-- ============================================================================
+-- 34. SUPPLIER LEAD TIMES (Per-SKU manufacturing + logistics tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS supplier_lead_times (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    sku                 VARCHAR(255) NOT NULL,
+    supplier_name       VARCHAR(255),
+    factory_lead_days   INTEGER NOT NULL DEFAULT 30,
+    logistics_days      INTEGER NOT NULL DEFAULT 25,
+    customs_buffer_days INTEGER NOT NULL DEFAULT 5,
+    total_lead_days     INTEGER GENERATED ALWAYS AS (factory_lead_days + logistics_days + customs_buffer_days) STORED,
+    shipping_method     VARCHAR(32) DEFAULT 'sea' CHECK (shipping_method IN ('sea', 'air', 'express')),
+    air_lead_days       INTEGER,
+    season_peak_surcharge NUMERIC(5,2) DEFAULT 1.0,
+    reliability_score   NUMERIC(5,4),
+    notes               TEXT,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku)
+);
+CREATE INDEX IF NOT EXISTS idx_slt_sku ON supplier_lead_times(store_id, sku);
+
+
 COMMIT;

@@ -577,6 +577,30 @@ class InventoryRiskForecast(Base):
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+
+class SupplierLeadTime(Base):
+    """Per-SKU supplier lead time configuration."""
+    __tablename__ = "supplier_lead_times"
+    __table_args__ = (
+        UniqueConstraint("store_id", "sku"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    sku = Column(String(255), nullable=False)
+    supplier_name = Column(String(255))
+    factory_lead_days = Column(Integer, nullable=False, default=30)
+    logistics_days = Column(Integer, nullable=False, default=25)
+    customs_buffer_days = Column(Integer, nullable=False, default=5)
+    shipping_method = Column(String(32), default="sea")
+    air_lead_days = Column(Integer)
+    season_peak_surcharge = Column(Numeric(5, 2), default=1.0)
+    reliability_score = Column(Numeric(5, 4))
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def create_all_tables():
     """Create all tables (for development/testing)."""
     Base.metadata.create_all(bind=get_engine())

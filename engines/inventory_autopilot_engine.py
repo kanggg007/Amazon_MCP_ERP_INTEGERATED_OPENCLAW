@@ -39,6 +39,26 @@ class InventoryAutopilotEngine:
     DEFAULT_LEAD_TIME_DAYS = 60
     SAFETY_BUFFER_DAYS = 15
 
+    def get_lead_time(self) -> int:
+        """Get per-SKU lead time from supplier_lead_times table.
+        Falls back to default if not configured.
+        """
+        session = get_session()
+        try:
+            from db.models import SupplierLeadTime
+            slt = session.query(SupplierLeadTime).filter(
+                SupplierLeadTime.store_id == self.store_id,
+                SupplierLeadTime.sku == self.sku,
+                SupplierLeadTime.is_active == True,
+            ).first()
+            if slt:
+                return slt.factory_lead_days + slt.logistics_days + slt.customs_buffer_days
+            return self.DEFAULT_LEAD_TIME_DAYS
+        except Exception:
+            return self.DEFAULT_LEAD_TIME_DAYS
+        finally:
+            session.close()
+
     # Peak season months (Oct-Dec)
     PEAK_MONTHS = {10, 11, 12}
     # Pre-peak months (Aug-Sep)
@@ -154,7 +174,7 @@ class InventoryAutopilotEngine:
         Days of Cover vs Lead Time → 3-stage risk system.
         """
         on_hand = on_hand or self.get_current_inventory()
-        lead_time_days = lead_time_days or self.DEFAULT_LEAD_TIME_DAYS
+        lead_time_days = lead_time_days or self.get_lead_time()
         base_demand = self.calculate_base_demand()
         current_month = date.today().month
         seasonality = self.get_seasonality_multiplier(current_month)
