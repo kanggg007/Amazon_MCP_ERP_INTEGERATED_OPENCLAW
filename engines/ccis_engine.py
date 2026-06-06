@@ -170,7 +170,7 @@ class CCISEngine:
                         "If it does not arrive by then, please let us know and we will arrange a solution."),
             "damage": ("We are sorry to hear about the damage. "
                       "Please provide photos of the damaged item and packaging. "
-                      "Once received, we will process a replacement or refund."),
+                      "Once confirmed, we will send a replacement right away. You do not need to return the damaged item — we will arrange disposal with Amazon."),
             "missing_part": ("We apologize for the missing parts. "
                            "Please let us know which specific parts are missing from your order. "
                            "We will ship them to you immediately."),
@@ -181,7 +181,7 @@ class CCISEngine:
                              "Please provide your order number and reason for the refund request. "
                              "Our team will review and respond within 24 hours."),
             "return_request": ("We are sorry the product did not meet your expectations. "
-                             "Please provide your order number and we will send you a return label."),
+                             "For items under $50, we offer a returnless refund — no need to send it back. We will arrange disposal with Amazon. Please confirm your order number."),
         }
 
         template = templates.get(message.message_type or "other",
