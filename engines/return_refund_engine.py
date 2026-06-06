@@ -74,9 +74,11 @@ class ReturnRefundEngine:
             logger.error(f"Store {self.store_id} not found")
             return []
 
-        cid = store_info.get("lwa_client_id", store_info.get("client_id", ""))
-        csec = store_info.get("lwa_client_secret", store_info.get("client_secret", ""))
-        ref = store_info.get("refresh_token", "")
+        # Try store registry first, fallback to direct env vars
+        store_prefix = f"STORE_{self.store_id.upper()}".upper()
+        cid = store_info.get("lwa_client_id", "") or os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", "")
+        csec = store_info.get("lwa_client_secret", "") or os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", "")
+        ref = store_info.get("refresh_token", "") or os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", "")
 
         def _sign(m, u, h, b):
             p = urlparse(u)
