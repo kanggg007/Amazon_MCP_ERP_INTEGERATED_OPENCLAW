@@ -570,6 +570,7 @@ async def voc_by_source(store_id: str, days: int = 30, user_id: str = "master",
 @app.on_event("startup")
 async def startup():
     try:
+        from auth import get_store_registry, get_rbac
         registry = get_store_registry()
         rbac = get_rbac()
         logger.info("API started. Stores: %s | Users: %s",
