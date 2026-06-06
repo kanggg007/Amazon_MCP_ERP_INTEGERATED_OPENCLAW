@@ -67,6 +67,37 @@ async def get_access_token(store_id: str) -> str:
     return await _token_manager.get_access_token(store_id)
 
 
+def get_rbac():
+    """Get the RBAC singleton."""
+    _ensure_initialized()
+    from auth.rbac import AdminRole, AdminUser
+    rbac = AdminRole()
+    # Load existing users from env or defaults
+    import os
+    master_id = os.environ.get("MASTER_ADMIN_ID", "master")
+    try:
+        rbac.create_sub_admin(
+            user_id=master_id,
+            username="Master Admin",
+            assigned_stores=[],  # All stores
+            created_by="system",
+        )
+    except (ValueError, PermissionError):
+        pass
+    return rbac
+
+
+def check_store_access(user_id: str, store_id: str, action: str = "read"):
+    """Check if user has access to store. Raises PermissionError if denied."""
+    rbac = get_rbac()
+    if action == "read":
+        if not rbac.check_read_access(user_id, store_id):
+            raise PermissionError(f"User '{user_id}' cannot read store '{store_id}'")
+    elif action == "write":
+        if not rbac.check_write_access(user_id, store_id):
+            raise PermissionError(f"User '{user_id}' cannot write to store '{store_id}'")
+
+
 def get_store_registry() -> StoreRegistry:
     """Get the initialized StoreRegistry singleton."""
     _ensure_initialized()
