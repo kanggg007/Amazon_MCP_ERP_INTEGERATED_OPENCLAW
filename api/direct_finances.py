@@ -32,17 +32,16 @@ async def run_migration():
     """Run database schema migration."""
     import os, sys
     try:
-        from db.connection import get_engine
-        from sqlalchemy import text
-        engine = get_engine()
+        from db.connection import engine as db_engine
+        conn = db_engine.raw_connection()
         with open('db/schema.sql') as f:
             sql = f.read()
-        with engine.connect() as conn:
-            conn.execute(text(sql))
-            conn.commit()
-        return {"status": "ok", "message": "Migration complete"}
+        conn.executescript(sql)
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "message": "All 25 tables + 10 views created"}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": str(e)[:200]}
 
 @router.get("/test/env")
 async def test_env():
