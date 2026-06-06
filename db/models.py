@@ -388,6 +388,86 @@ class FinancialTransaction(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class CustomerMessage(Base):
+    """Buyer messages for Customer Communication Intelligence System."""
+    __tablename__ = "customer_messages"
+    __table_args__ = (
+        UniqueConstraint("store_id", "marketplace_id", "message_id"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    message_id = Column(String(128), nullable=False)
+    amazon_order_id = Column(String(64))
+    customer_id = Column(String(128))
+    sku = Column(String(255))
+    asin = Column(String(32))
+    subject = Column(Text)
+    body = Column(Text)
+    message_type = Column(String(64))
+    priority = Column(String(16))
+    sentiment = Column(String(16))
+    status = Column(String(32), default="pending")
+    customer_value = Column(Numeric(10, 2), default=0)
+    refund_probability = Column(Numeric(5, 4), default=0)
+    expected_loss = Column(Numeric(10, 2), default=0)
+    received_date = Column(DateTime(timezone=True))
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class SupportPlaybook(Base):
+    """Approved support templates/resolutions."""
+    __tablename__ = "support_playbooks"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    issue_type = Column(String(64), nullable=False)
+    risk_level = Column(String(16), nullable=False)
+    approved_resolution = Column(String(255), nullable=False)
+    template_subject = Column(Text)
+    template_body = Column(Text, nullable=False)
+    requires_approval = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+    created_by = Column(String(128))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class MessageDraft(Base):
+    """Auto-generated replies awaiting approval."""
+    __tablename__ = "message_drafts"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    message_id = Column(BigInteger, ForeignKey("customer_messages.id", ondelete="CASCADE"), nullable=False)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    draft_reply = Column(Text, nullable=False)
+    confidence = Column(Numeric(5, 4))
+    approval_required = Column(Boolean, default=True)
+    approval_status = Column(String(32), default="pending")
+    approved_by = Column(String(128))
+    approved_at = Column(DateTime(timezone=True))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class SupportCase(Base):
+    """End-to-end case tracking."""
+    __tablename__ = "support_cases"
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    message_id = Column(BigInteger, ForeignKey("customer_messages.id"))
+    amazon_order_id = Column(String(64))
+    sku = Column(String(255))
+    issue_type = Column(String(64), nullable=False)
+    resolution = Column(String(255))
+    resolution_cost = Column(Numeric(12, 2), default=0)
+    status = Column(String(32), default="open")
+    assigned_to = Column(String(128))
+    resolved_at = Column(DateTime(timezone=True))
+    notes = Column(Text)
+    raw_data = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class CustomerLossEvent(Base):
     """Customer loss events — unified analysis table for AI."""
     __tablename__ = "customer_loss_events"

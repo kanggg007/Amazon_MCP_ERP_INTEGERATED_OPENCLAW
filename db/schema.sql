@@ -977,4 +977,91 @@ GROUP BY sd.store_id, sd.sku
 HAVING SUM(sd.estimated_loss) > 0
 ORDER BY total_loss DESC;
 
+
+-- ============================================================================
+-- 26. CUSTOMER_MESSAGES (Buyer messages for CCIS)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS customer_messages (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    message_id          VARCHAR(128) NOT NULL,
+    amazon_order_id     VARCHAR(64),
+    customer_id         VARCHAR(128),
+    sku                 VARCHAR(255),
+    asin                VARCHAR(32),
+    subject             TEXT,
+    body                TEXT,
+    message_type        VARCHAR(64),
+    priority            VARCHAR(16) CHECK (priority IN ('low', 'medium', 'high')),
+    sentiment           VARCHAR(16),
+    status              VARCHAR(32) DEFAULT 'pending',
+    customer_value      NUMERIC(10,2) DEFAULT 0,
+    refund_probability  NUMERIC(5,4) DEFAULT 0,
+    expected_loss       NUMERIC(10,2) DEFAULT 0,
+    received_date       TIMESTAMPTZ,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, marketplace_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cm_store_status ON customer_messages(store_id, status);
+CREATE INDEX IF NOT EXISTS idx_cm_type ON customer_messages(message_type);
+CREATE INDEX IF NOT EXISTS idx_cm_priority ON customer_messages(priority);
+
+-- ============================================================================
+-- 27. SUPPORT_PLAYBOOKS (Approved templates)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS support_playbooks (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    issue_type          VARCHAR(64) NOT NULL,
+    risk_level          VARCHAR(16) NOT NULL CHECK (risk_level IN ('low', 'medium', 'high')),
+    approved_resolution VARCHAR(255) NOT NULL,
+    template_subject    TEXT,
+    template_body       TEXT NOT NULL,
+    requires_approval   BOOLEAN NOT NULL DEFAULT TRUE,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by          VARCHAR(128),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 28. MESSAGE_DRAFTS (Awaiting approval)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS message_drafts (
+    id                  BIGSERIAL PRIMARY KEY,
+    message_id          BIGINT NOT NULL REFERENCES customer_messages(id) ON DELETE CASCADE,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    draft_reply         TEXT NOT NULL,
+    confidence          NUMERIC(5,4),
+    approval_required   BOOLEAN NOT NULL DEFAULT TRUE,
+    approval_status     VARCHAR(32) DEFAULT 'pending',
+    approved_by         VARCHAR(128),
+    approved_at         TIMESTAMPTZ,
+    notes               TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 29. SUPPORT_CASES (End-to-end tracking)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS support_cases (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL DEFAULT 'ATVPDKIKX0DER',
+    message_id          BIGINT REFERENCES customer_messages(id),
+    amazon_order_id     VARCHAR(64),
+    sku                 VARCHAR(255),
+    issue_type          VARCHAR(64) NOT NULL,
+    resolution          VARCHAR(255),
+    resolution_cost     NUMERIC(12,2) DEFAULT 0,
+    status              VARCHAR(32) DEFAULT 'open',
+    assigned_to         VARCHAR(128),
+    resolved_at         TIMESTAMPTZ,
+    notes               TEXT,
+    raw_data            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
 COMMIT;

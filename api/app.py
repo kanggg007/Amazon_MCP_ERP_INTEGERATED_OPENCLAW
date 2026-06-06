@@ -20,6 +20,7 @@ from engines.ads_engine import AdsEngine
 from engines.voc_engine import VoCEngine
 from engines.return_refund_engine import ReturnRefundEngine
 from engines.profit_leakage_engine import ProfitLeakageEngine
+from engines.ccis_engine import CCISEngine
 from engines.reimbursement_engine import ReimbursementEngine
 from api.direct_finances import router as direct_finances_router
 from db.connection import get_session
@@ -143,7 +144,10 @@ async def root():
             "GET /voc/profit-impact/{store_id} — Complaints → profit correlation",
             "GET /voc/trend/{store_id} — Monthly complaint trends",
             "GET /voc/by-source/{store_id} — Feedback sources ranked by tier",
-        ],
+            "POST /ccis/process — Classify + draft + approve buyer message",
+            "GET /ccis/dashboard/{store_id} — CCIS intelligence dashboard",
+            "GET /ccis/classify — Quick message classification",
+            "POST /ccis/playbook — Create support playbook template",        ],
     }
 
 
@@ -574,6 +578,62 @@ async def voc_by_source(store_id: str, days: int = 30, user_id: str = "master",
         "requested_by": user_id,
     }
 
+
+# ─── Customer Communication Intelligence Routes ───
+
+
+@app.post("/ccis/process")
+async def ccis_process_message(store_id: str, body: str, subject: str = "",
+                                amazon_order_id: str = "", sku: str = "",
+                                user_id: str = "master"):
+    """Full pipeline: classify → risk → draft → approval."""
+    require_store_access(user_id, store_id, "write")
+    engine = CCISEngine(store_id)
+    result = engine.process_message(body, subject, amazon_order_id, sku)
+    return {"status": "ok", **result, "store_id": store_id, "requested_by": user_id}
+
+
+@app.get("/ccis/dashboard/{store_id}")
+async def ccis_dashboard(store_id: str, days: int = 30, user_id: str = "master"):
+    """CCIS dashboard: top complaints, risk, pending approvals."""
+    require_store_access(user_id, store_id, "read")
+    engine = CCISEngine(store_id)
+    dashboard = engine.get_dashboard(days=days)
+    return {"status": "ok", "dashboard": dashboard, "store_id": store_id, "requested_by": user_id}
+
+
+@app.get("/ccis/classify")
+async def ccis_classify(store_id: str, body: str, subject: str = "",
+                        user_id: str = "master"):
+    """Just classify a message without storing it."""
+    require_store_access(user_id, store_id, "read")
+    engine = CCISEngine(store_id)
+    classification = engine.classify_message(body, subject)
+    return {"status": "ok", "classification": classification, "store_id": store_id}
+
+
+@app.post("/ccis/playbook")
+async def ccis_create_playbook(store_id: str, issue_type: str, risk_level: str,
+                                approved_resolution: str, template_body: str,
+                                template_subject: str = "",
+                                requires_approval: bool = True,
+                                user_id: str = "master"):
+    """Create a support playbook template."""
+    require_store_access(user_id, store_id, "write")
+    from db.connection import get_session
+    from db.models import SupportPlaybook
+    session = get_session()
+    try:
+        pb = SupportPlaybook(
+            store_id=store_id, issue_type=issue_type, risk_level=risk_level,
+            approved_resolution=approved_resolution, template_body=template_body,
+            template_subject=template_subject, requires_approval=requires_approval,
+            created_by=user_id)
+        session.add(pb)
+        session.commit()
+        return {"status": "ok", "playbook_id": pb.id, "store_id": store_id}
+    finally:
+        session.close()
 
 @app.on_event("startup")
 async def startup():
