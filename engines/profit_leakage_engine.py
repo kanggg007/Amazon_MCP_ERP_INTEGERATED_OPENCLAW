@@ -26,7 +26,7 @@ from db.connection import get_session
 from db.models import (
     ProfitDailySnapshot, Order, OrderItem,
     CustomerLossEvent, FinancialTransaction,
-    AdsPerformance, InventorySnapshot,
+    AdPerformance, InventorySnapshot,
     ShipmentDiscrepancy,
 )
 from auth.store_registry import StoreRegistry
@@ -208,11 +208,11 @@ class ProfitLeakageEngine:
 
     def _get_ad_spend(self, session, sku: str, since: date) -> float:
         row = session.query(
-            func.coalesce(func.sum(AdsPerformance.spend), 0)
+            func.coalesce(func.sum(AdPerformance.spend), 0)
         ).filter(
-            AdsPerformance.store_id == self.store_id,
-            AdsPerformance.sku == sku,
-            AdsPerformance.date >= since,
+            AdPerformance.store_id == self.store_id,
+            AdPerformance.sku == sku,
+            AdPerformance.date >= since,
         ).scalar()
         return float(row) if row else 0
 
@@ -325,19 +325,19 @@ class ProfitLeakageEngine:
 
             # Pattern 2: Ads waste (high ACOS keywords)
             ad_rows = session.query(
-                AdsPerformance.keyword,
-                func.sum(AdsPerformance.spend).label("total_spend"),
-                func.sum(AdsPerformance.sales).label("total_sales"),
+                AdPerformance.keyword,
+                func.sum(AdPerformance.spend).label("total_spend"),
+                func.sum(AdPerformance.sales).label("total_sales"),
             ).filter(
-                AdsPerformance.store_id == self.store_id,
-                AdsPerformance.sku == sku,
-                AdsPerformance.date >= since,
+                AdPerformance.store_id == self.store_id,
+                AdPerformance.sku == sku,
+                AdPerformance.date >= since,
             ).group_by(
-                AdsPerformance.keyword
+                AdPerformance.keyword
             ).having(
-                func.sum(AdsPerformance.spend) > 20
+                func.sum(AdPerformance.spend) > 20
             ).order_by(
-                func.sum(AdsPerformance.spend).desc()
+                func.sum(AdPerformance.spend).desc()
             ).limit(10).all()
 
             for ar in ad_rows:
