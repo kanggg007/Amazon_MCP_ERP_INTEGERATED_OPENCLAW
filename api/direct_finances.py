@@ -27,6 +27,23 @@ def _sign(m, u, h, b):
     h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
     return h
 
+@router.get("/admin/migrate")
+async def run_migration():
+    """Run database schema migration."""
+    import os, sys
+    try:
+        from db.connection import get_engine
+        from sqlalchemy import text
+        engine = get_engine()
+        with open('db/schema.sql') as f:
+            sql = f.read()
+        with engine.connect() as conn:
+            conn.execute(text(sql))
+            conn.commit()
+        return {"status": "ok", "message": "Migration complete"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @router.get("/test/env")
 async def test_env():
     """Dump available env vars (safe keys only)."""
