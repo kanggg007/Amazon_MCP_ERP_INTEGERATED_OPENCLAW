@@ -30,15 +30,13 @@ def _sign(m, u, h, b):
     return h
 
 
-@router.post("/admin/ingest-all/{store_id}")
-async def ingest_all(store_id: str = "02", background_tasks=None):
-    """Ingest all data into DB using background tasks."""
-    from fastapi import BackgroundTasks
+@router.get("/admin/ingest-refunds/{store_id}")
+async def ingest_refunds(store_id: str = "02"):
+    """Ingest refunds from Finances API into DB."""
     import os as os_mod, httpx, hashlib, hmac, time as time_mod, json as json_mod, uuid
     from urllib.parse import urlparse, quote
-    from datetime import datetime
     from db.connection import get_session
-    from db.models import FinancialTransaction, Refund, Return, Order, OrderItem
+    from db.models import FinancialTransaction
     
     AK = os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID", "")
     AS = os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY", "")
@@ -46,9 +44,7 @@ async def ingest_all(store_id: str = "02", background_tasks=None):
     cid = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", "")
     csec = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", "")
     ref = os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", "")
-    
-    if not cid or not ref:
-        return {"error": "Missing credentials"}
+    if not cid or not ref: return {"error": "Missing credentials"}
     
     def _sign(m, u, h, b):
         p = urlparse(u); ad = time_mod.strftime("%Y%m%dT%H%M%SZ", time_mod.gmtime()); ds = time_mod.strftime("%Y%m%d", time_mod.gmtime())
@@ -67,104 +63,104 @@ async def ingest_all(store_id: str = "02", background_tasks=None):
         h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
         return h
     
-    results = {"store_id": store_id}
-    
-    with httpx.Client(timeout=60.0) as c:
-        # LWA
+    with httpx.Client(timeout=30.0) as c:
         r = c.post("https://api.amazon.com/auth/o2/token", json={
             "grant_type": "refresh_token", "client_id": cid, "client_secret": csec, "refresh_token": ref})
-        if r.status_code != 200:
-            return {"error": f"LWA failed: {r.status_code}"}
+        if r.status_code != 200: return {"error": f"LWA: {r.status_code}"}
         tk = r.json()["access_token"]
         
-        # 1. Ingest refunds from Finances API
         h = {"x-amz-access-token": tk}
         h = _sign("GET", "https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter=2026-05-01T00:00:00Z&MaxResults=100", h, "")
         r2 = c.get("https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter=2026-05-01T00:00:00Z&MaxResults=100", headers=h)
+        if r2.status_code != 200: return {"error": f"Finances: {r2.status_code}"}
         
+        fe = r2.json().get("payload", {}).get("FinancialEvents", {})
         stored = 0
-        if r2.status_code == 200:
-            fe = r2.json().get("payload", {}).get("FinancialEvents", {})
-            session = get_session()
-            try:
-                for ev in fe.get("RefundEventList", []):
-                    oid = ev.get("AmazonOrderId", "")
-                    posted = ev.get("PostedDate", "")
-                    for item in ev.get("ShipmentItemAdjustmentList", []):
-                        sku = item.get("SellerSKU", "")
-                        total = 0
-                        for charge in item.get("ItemChargeAdjustmentList", []):
-                            try: total += abs(float(charge.get("ChargeAmount", {}).get("CurrencyAmount", 0)))
-                            except: pass
-                        if total == 0: continue
-                        rid_val = f"REF-{oid}-{sku}-{uuid.uuid4().hex[:8]}"
-                        ft = FinancialTransaction(
-                            store_id=store_id, marketplace_id="ATVPDKIKX0DER",
-                            transaction_id=rid_val, amazon_order_id=oid, sku=sku,
-                            transaction_type="refund", amount=total, currency="USD",
-                            posted_date=posted, raw_data=ev)
-                        session.add(ft)
-                        stored += 1
-                session.commit()
-            except Exception as e:
-                session.rollback()
-            finally:
-                session.close()
-        results["refunds_stored"] = stored
+        session = get_session()
+        try:
+            for ev in fe.get("RefundEventList", []):
+                oid = ev.get("AmazonOrderId", ""); posted = ev.get("PostedDate", "")
+                for item in ev.get("ShipmentItemAdjustmentList", []):
+                    sku = item.get("SellerSKU", ""); total = 0
+                    for charge in item.get("ItemChargeAdjustmentList", []):
+                        try: total += abs(float(charge.get("ChargeAmount", {}).get("CurrencyAmount", 0)))
+                        except: pass
+                    if total == 0: continue
+                    rid_val = f"REF-{oid}-{sku}-{uuid.uuid4().hex[:8]}"
+                    session.add(FinancialTransaction(
+                        store_id=store_id, marketplace_id="ATVPDKIKX0DER",
+                        transaction_id=rid_val, amazon_order_id=oid, sku=sku,
+                        transaction_type="refund", amount=total, currency="USD",
+                        posted_date=posted, raw_data=ev))
+                    stored += 1
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            return {"error": str(e)[:200]}
+        finally:
+            session.close()
+        return {"status": "ok", "refunds_stored": stored, "store_id": store_id}
+
+
+@router.get("/admin/ingest-settlements-only/{store_id}")
+async def ingest_settlements(store_id: str = "02"):
+    """Just ingest settlement data into financial_transactions."""
+    import os as os_mod, httpx, hashlib, hmac, time as time_mod, json as json_mod, uuid
+    from urllib.parse import urlparse, quote
+    from db.connection import get_session
+    from db.models import FinancialTransaction
+    
+    AK = os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID", "")
+    AS = os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY", "")
+    store_prefix = f"STORE_{store_id.upper()}"
+    cid = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", "")
+    csec = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", "")
+    ref = os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", "")
+    if not cid or not ref: return {"error": "Missing credentials"}
+    
+    def _sign(m, u, h, b):
+        p = urlparse(u); ad = time_mod.strftime("%Y%m%dT%H%M%SZ", time_mod.gmtime()); ds = time_mod.strftime("%Y%m%d", time_mod.gmtime())
+        h["x-amz-date"] = ad; h["host"] = p.hostname
+        cu = quote(p.path, safe="/") or "/"
+        ch = "".join(f"{kl.lower()}:{v.strip()}\n" for kl, v in sorted(h.items()) if kl.lower() not in ("authorization",))
+        sh = ";".join(sorted(kl.lower() for kl in h if kl.lower() not in ("authorization",)))
+        ph = hashlib.sha256(b.encode()).hexdigest()
+        cr = "\n".join([m.upper(), cu, p.query, ch, sh, ph])
+        cs = f"{ds}/us-east-1/execute-api/aws4_request"
+        st = "\n".join(["AWS4-HMAC-SHA256", ad, cs, hashlib.sha256(cr.encode()).hexdigest()])
+        def h8(k, m):
+            if isinstance(k, str): k = k.encode()
+            return hmac.new(k, m.encode(), hashlib.sha256).digest()
+        sig = hmac.new(h8(h8(h8(h8(f"AWS4{AS}", ds), "us-east-1"), "execute-api"), "aws4_request"), st.encode(), hashlib.sha256).hexdigest()
+        h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
+        return h
+    
+    with httpx.Client(timeout=30.0) as c:
+        r = c.post("https://api.amazon.com/auth/o2/token", json={
+            "grant_type": "refresh_token", "client_id": cid, "client_secret": csec, "refresh_token": ref})
+        if r.status_code != 200: return {"error": f"LWA: {r.status_code}"}
+        tk = r.json()["access_token"]
         
-        # 2. Get orders from existing report
-        report_ids = {"02": "99403020609"}
-        rid = report_ids.get(store_id)
-        if rid:
-            h2 = {"x-amz-access-token": tk}
-            h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", h2, "")
-            r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", headers=h2)
-            if r3.status_code == 200 and "reportDocumentId" in r3.json():
-                doc = r3.json()["reportDocumentId"]
-                h3 = {"x-amz-access-token": tk}
-                h3 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", h3, "")
-                r4 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", headers=h3)
-                doc_data = r4.json()
-                doc_url = doc_data.get("url", doc_data.get("documentUrl", ""))
-                if not doc_url:
-                    results["orders_error"] = "no url"
-                else:
-                    r5 = c.get(doc_url)
-                    lines = r5.text.split("\n")
-                    us_orders, us_rev = 0, 0.0
-                for line in lines[1:]:
-                    if line.strip():
-                        cols = line.split("\t")
-                        if len(cols) < 16: continue
-                        try: price = float(cols[15])
-                        except: continue
-                        if "Amazon.com" in cols[6]:
-                            us_orders += 1; us_rev += price
-                results["orders_count"] = us_orders
-                results["orders_revenue"] = round(us_rev, 2)
-        
-        # 3. Ingest settlement reports
-        h4 = {"x-amz-access-token": tk}
-        h4 = _sign("GET", "https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=5", h4, "")
-        r6 = c.get("https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=5", headers=h4)
-        reports = r6.json().get("reports", [])
+        h = {"x-amz-access-token": tk}
+        h = _sign("GET", "https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=5", h, "")
+        r2 = c.get("https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=5", headers=h)
+        reports = r2.json().get("reports", [])
         
         total_rev, total_fees, total_ads, total_promos = 0.0, 0.0, 0.0, 0.0
         for rpt in reports:
             sid = rpt.get("reportId", "")
-            h5 = {"x-amz-access-token": tk}
-            h5 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{sid}", h5, "")
-            r7 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{sid}", headers=h5)
-            if "reportDocumentId" not in r7.json(): continue
-            doc2 = r7.json()["reportDocumentId"]
-            h6 = {"x-amz-access-token": tk}
-            h6 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc2}", h6, "")
-            r8 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc2}", headers=h6)
-            doc_data2 = r8.json()
-            doc_url2 = doc_data2.get("url", doc_data2.get("documentUrl", ""))
-            if not doc_url2: continue
-            r9 = c.get(doc_url2)
-            for line in r9.text.split("\n")[1:]:
+            h2 = {"x-amz-access-token": tk}
+            h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{sid}", h2, "")
+            r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{sid}", headers=h2)
+            if "reportDocumentId" not in r3.json(): continue
+            h3 = {"x-amz-access-token": tk}
+            h3 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{r3.json()['reportDocumentId']}", h3, "")
+            r4 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{r3.json()['reportDocumentId']}", headers=h3)
+            doc_data = r4.json()
+            doc_url = doc_data.get("url", doc_data.get("documentUrl", ""))
+            if not doc_url: continue
+            r5 = c.get(doc_url)
+            for line in r5.text.split("\n")[1:]:
                 if line.strip():
                     cols = line.split("\t")
                     if len(cols) > 14:
@@ -176,14 +172,8 @@ async def ingest_all(store_id: str = "02", background_tasks=None):
                         elif desc == "Cost of Advertising": total_ads += abs(amt)
                         elif desc == "Promotion": total_promos += abs(amt)
         
-        results["settlement_revenue"] = round(total_rev, 2)
-        results["fba_fees"] = round(total_fees, 2)
-        results["ads_spend"] = round(total_ads, 2)
-        results["promotions"] = round(total_promos, 2)
-    
-    results["status"] = "ok"
-    return results
-
+        return {"status": "ok", "revenue": round(total_rev, 2), "fba_fees": round(total_fees, 2),
+            "ads_spend": round(total_ads, 2), "promotions": round(total_promos, 2), "store_id": store_id}
 @router.get("/admin/ingest-settlements/{store_id}")
 async def ingest_settlements(store_id: str = "02"):
     """Ingest all settlement data (fees, ads, promos, refunds)."""
