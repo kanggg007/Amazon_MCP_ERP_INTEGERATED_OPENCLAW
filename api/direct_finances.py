@@ -30,6 +30,101 @@ def _sign(m, u, h, b):
     return h
 
 
+@router.get("/admin/ingest-settlements/{store_id}")
+async def ingest_settlements(store_id: str = "02"):
+    """Ingest all settlement data (fees, ads, promos, refunds)."""
+    import os as os_mod, httpx, hashlib, hmac, time as time_mod
+    from urllib.parse import urlparse, quote
+    from collections import Counter
+    from db.connection import get_session
+    from db.models import FinancialTransaction
+    
+    AK = os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID", "")
+    AS = os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY", "")
+    
+    def _sign(m, u, h, b):
+        p = urlparse(u); ad = time_mod.strftime("%Y%m%dT%H%M%SZ", time_mod.gmtime()); ds = time_mod.strftime("%Y%m%d", time_mod.gmtime())
+        h["x-amz-date"] = ad; h["host"] = p.hostname
+        cu = quote(p.path, safe="/") or "/"
+        ch = "".join(f"{kl.lower()}:{v.strip()}\n" for kl, v in sorted(h.items()) if kl.lower() not in ("authorization",))
+        sh = ";".join(sorted(kl.lower() for kl in h if kl.lower() not in ("authorization",)))
+        ph = hashlib.sha256(b.encode()).hexdigest()
+        cr = "\n".join([m.upper(), cu, p.query, ch, sh, ph])
+        cs = f"{ds}/us-east-1/execute-api/aws4_request"
+        st = "\n".join(["AWS4-HMAC-SHA256", ad, cs, hashlib.sha256(cr.encode()).hexdigest()])
+        def h8(k, m):
+            if isinstance(k, str): k = k.encode()
+            return hmac.new(k, m.encode(), hashlib.sha256).digest()
+        sig = hmac.new(h8(h8(h8(h8(f"AWS4{AS}", ds), "us-east-1"), "execute-api"), "aws4_request"), st.encode(), hashlib.sha256).hexdigest()
+        h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
+        return h
+    
+    store_prefix = f"STORE_{store_id.upper()}"
+    cid = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", os_mod.environ.get(f"STORE_0{store_id}_LWA_CLIENT_ID", ""))
+    csec = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", os_mod.environ.get(f"STORE_0{store_id}_LWA_CLIENT_SECRET", ""))
+    ref = os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", os_mod.environ.get(f"STORE_0{store_id}_REFRESH_TOKEN_AMERICAS", ""))
+    
+    if not cid or not ref:
+        return {"error": f"Missing credentials for store {store_id}"}
+    
+    parsed = []
+    with httpx.Client(timeout=30.0) as c:
+        r = c.post("https://api.amazon.com/auth/o2/token", json={
+            "grant_type": "refresh_token", "client_id": cid, "client_secret": csec, "refresh_token": ref,
+        })
+        if r.status_code != 200:
+            return {"error": f"LWA failed: {r.status_code}"}
+        tk = r.json()["access_token"]
+        
+        # Search for settlement reports
+        h = {"x-amz-access-token": tk}
+        h = _sign("GET", "https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=10", h, "")
+        r2 = c.get("https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=10", headers=h)
+        reports = r2.json().get("reports", [])
+        
+        revenue, fees, ads, promos, refund_total = 0.0, 0.0, 0.0, 0.0, 0.0
+        tx_count = 0
+        
+        for rpt in reports[:5]:
+            rid = rpt.get("reportId", "")
+            h2 = {"x-amz-access-token": tk}
+            h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", h2, "")
+            r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", headers=h2)
+            data = r3.json()
+            if not isinstance(data, dict) or 'reportDocumentId' not in data:
+                continue
+            h3 = {"x-amz-access-token": tk}
+            h3 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{data['reportDocumentId']}", h3, "")
+            r4 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{data['reportDocumentId']}", headers=h3)
+            r5 = c.get(r4.json()["url"])
+            lines = r5.text.split("\n")
+            
+            for line in lines[1:]:
+                if line.strip():
+                    cols = line.split("\t")
+                    if len(cols) > 14:
+                        desc = cols[12].strip()
+                        try: amt = float(cols[14].replace(",", "."))
+                        except: continue
+                        if desc == "ItemPrice": revenue += amt; tx_count += 1
+                        elif desc == "ItemFees": fees += abs(amt); tx_count += 1
+                        elif desc == "Cost of Advertising": ads += abs(amt); tx_count += 1
+                        elif desc == "Promotion": promos += abs(amt); tx_count += 1
+                        elif "refund" in desc.lower(): refund_total += abs(amt); tx_count += 1
+        
+        net = revenue - fees - ads - promos - refund_total
+        return {
+            "status": "ok",
+            "store_id": store_id,
+            "settlements_scanned": len(reports),
+            "gross_revenue": round(revenue, 2),
+            "fba_fees": round(fees, 2),
+            "ads_spend": round(ads, 2),
+            "promotions": round(promos, 2),
+            "refunds": round(refund_total, 2),
+            "net_after_all": round(net, 2),
+        }
+
 @router.get("/test/finances/{store_env}")
 async def test_finances(store_env: str = "STORE_02"):
     """Test: fetch refunds directly from Finances API."""
