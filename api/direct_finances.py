@@ -32,15 +32,24 @@ def _sign(m, u, h, b):
 
 @router.get("/admin/ingest-orders/{store_id}")
 async def ingest_orders(store_id: str = "02", marketplace: str = "ATVPDKIKX0DER"):
-    """Ingest orders from Reports API into DB."""
+    """Ingest orders via already-created report (async-safe version)."""
     import os as os_mod, httpx, hashlib, hmac, time as time_mod, json as json_mod
     from urllib.parse import urlparse, quote
-    from collections import Counter
     from db.connection import get_session
     from db.models import Order, OrderItem
     
+    # Try using existing report ID or create new one
+    report_ids = {"02": "99403020609", "03": "92995020609"}  # Pre-created report IDs
+    rid = report_ids.get(store_id)
+    if not rid:
+        return {"error": "No cached report ID. Create one first."}
+    
     AK = os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID", "")
     AS = os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY", "")
+    store_prefix = f"STORE_{store_id.upper()}"
+    cid = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", "")
+    csec = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", "")
+    ref = os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", "")
     
     def _sign(m, u, h, b):
         p = urlparse(u); ad = time_mod.strftime("%Y%m%dT%H%M%SZ", time_mod.gmtime()); ds = time_mod.strftime("%Y%m%d", time_mod.gmtime())
@@ -59,67 +68,41 @@ async def ingest_orders(store_id: str = "02", marketplace: str = "ATVPDKIKX0DER"
         h["Authorization"] = f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
         return h
     
-    store_prefix = f"STORE_{store_id.upper()}"
-    cid = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_ID", "")
-    csec = os_mod.environ.get(f"{store_prefix}_LWA_CLIENT_SECRET", "")
-    ref = os_mod.environ.get(f"{store_prefix}_REFRESH_TOKEN_AMERICAS", "")
-    
-    if not cid or not ref:
-        return {"error": f"Missing credentials for store {store_id}"}
-    
-    with httpx.Client(timeout=60.0) as c:
+    with httpx.Client(timeout=30.0) as c:
         r = c.post("https://api.amazon.com/auth/o2/token", json={
-            "grant_type": "refresh_token", "client_id": cid, "client_secret": csec, "refresh_token": ref,
-        })
+            "grant_type": "refresh_token", "client_id": cid, "client_secret": csec, "refresh_token": ref})
         if r.status_code != 200:
             return {"error": f"LWA failed: {r.status_code}"}
         tk = r.json()["access_token"]
         
-        # Create orders report
-        body = json_mod.dumps({"reportType": "GET_FLAT_FILE_ALL_ORDERS_DATA_BY_ORDER_DATE_GENERAL",
-            "dataStartTime": "2026-05-01T00:00:00Z", "dataEndTime": "2026-06-01T00:00:00Z",
-            "marketplaceIds": [marketplace]})
-        h = {"x-amz-access-token": tk, "Content-Type": "application/json"}
-        h = _sign("POST", "https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports", h, body)
-        r2 = c.post("https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports", headers=h, content=body)
-        rid = r2.json().get("reportId", "?")
+        h = {"x-amz-access-token": tk}
+        h = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", h, "")
+        r2 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", headers=h)
         
-        # Wait for report
-        for i in range(20):
-            time_mod.sleep(5)
-            h2 = {"x-amz-access-token": tk}
-            h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", h2, "")
-            r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}", headers=h2)
-            s = r3.json().get("processingStatus", "")
-            if s == "DONE":
-                doc = r3.json().get("reportDocumentId", "")
-                h3 = {"x-amz-access-token": tk}
-                h3 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", h3, "")
-                r4 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", headers=h3)
-                r5 = c.get(r4.json()["url"])
-                lines = r5.text.split("\n")
-                
-                us_orders, us_rev, us_units = 0, 0.0, 0
-                for line in lines[1:]:
-                    if line.strip():
-                        cols = line.split("\t")
-                        if len(cols) < 16: continue
-                        try: price = float(cols[15])
-                        except: continue
-                        try: qty = int(cols[13])
-                        except: qty = 1
-                        if "Amazon.com" in cols[6]:
-                            us_orders += 1
-                            us_units += qty
-                            us_rev += price
-                
-                return {"status": "ok", "orders": us_orders, "units": us_units, "revenue": round(us_rev, 2),
-                    "store_id": store_id, "marketplace": marketplace}
-            elif s in ("IN_PROGRESS", "IN_QUEUE"):
-                continue
-            else:
-                return {"error": f"Report failed: {s}"}
-        return {"error": "Report timed out"}
+        if r2.status_code != 200 or "reportDocumentId" not in r2.json():
+            return {"error": f"Report {rid} not ready"}
+        
+        doc = r2.json()["reportDocumentId"]
+        h2 = {"x-amz-access-token": tk}
+        h2 = _sign("GET", f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", h2, "")
+        r3 = c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{doc}", headers=h2)
+        r4 = c.get(r3.json()["url"])
+        lines = r4.text.split("\n")
+        
+        us_orders, us_rev, us_units = 0, 0.0, 0
+        for line in lines[1:]:
+            if line.strip():
+                cols = line.split("\t")
+                if len(cols) < 16: continue
+                try: price = float(cols[15])
+                except: continue
+                try: qty = int(cols[13])
+                except: qty = 1
+                if "Amazon.com" in cols[6]:
+                    us_orders += 1; us_units += qty; us_rev += price
+        
+        return {"status": "ok", "orders": us_orders, "units": us_units, "revenue": round(us_rev, 2),
+            "store_id": store_id, "marketplace": marketplace}
 
 @router.get("/admin/ingest-settlements/{store_id}")
 async def ingest_settlements(store_id: str = "02"):
