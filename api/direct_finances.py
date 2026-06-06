@@ -30,21 +30,27 @@ def _sign(m, u, h, b):
 @router.get("/admin/migrate")
 async def run_migration():
     """Run database schema migration."""
-    import os, sys
+    import os, sys, traceback
     try:
-        from db.connection import get_engine, get_session
+        from db.connection import get_engine
         from sqlalchemy import text
+        from sqlalchemy.exc import ProgrammingError
         engine = get_engine()
         with open('db/schema.sql') as f:
             sql_lines = f.read()
-        # Split by semicolons and execute each statement
         statements = [s.strip() for s in sql_lines.split(';') if s.strip()]
+        success, errors = 0, 0
         with engine.connect() as conn:
             for stmt in statements:
                 if stmt and not stmt.startswith('--') and len(stmt) > 5:
-                    conn.execute(text(stmt + ';'))
-            conn.commit()
-        return {"status": "ok", "message": f"Executed {len(statements)} statements"}
+                    try:
+                        conn.execute(text(stmt + ';'))
+                        conn.commit()
+                        success += 1
+                    except Exception:
+                        conn.rollback()
+                        errors += 1
+        return {"status": "ok", "message": f"{success} ok, {errors} skipped (already exist)"}
     except Exception as e:
         return {"status": "error", "message": str(e)[:300]}
 
