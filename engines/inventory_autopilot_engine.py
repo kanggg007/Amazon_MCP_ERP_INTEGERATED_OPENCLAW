@@ -40,34 +40,39 @@ class InventoryAutopilotEngine:
     SAFETY_BUFFER_DAYS = 15
 
     # Common China → World sea freight routes (days)
+    # Shenzhen → Destination sea freight (slow channel, port → FBA warehouse)
     SHIPPING_ROUTES = {
-        ("shenzhen", "us_west"): 18, ("shenzhen", "us_east"): 28,
-        ("shenzhen", "canada"): 22, ("shenzhen", "uk"): 30,
-        ("shenzhen", "germany"): 32, ("shenzhen", "australia"): 20,
-        ("shenzhen", "japan"): 8, ("shenzhen", "mexico"): 25,
-        ("ningbo", "us_west"): 16, ("ningbo", "us_east"): 26,
-        ("ningbo", "europe"): 30, ("shanghai", "us_west"): 14,
-        ("shanghai", "japan"): 6, ("shanghai", "australia"): 18,
-        ("yantian", "us_west"): 16, ("yantian", "us_east"): 27,
-        ("guangzhou", "us_west"): 18, ("guangzhou", "southeast_asia"): 7,
+        ("shenzhen", "us"):        45,   # Shenzhen → US FBA warehouse (slow channel)
+        ("shenzhen", "canada"):     50,   # Shenzhen → Canada FBA warehouse
+        ("shenzhen", "europe"):     60,   # Shenzhen → EU FBA warehouse (DE/UK/FR)
+        ("shenzhen", "japan"):      25,   # Shenzhen → Japan FBA warehouse
+        ("shenzhen", "australia"):  60,   # Shenzhen → Australia FBA warehouse
+        ("shenzhen", "mexico"):     40,   # Shenzhen → Mexico FBA warehouse
+        # Other China ports (shorter if closer to destination)
+        ("shanghai", "us"):         42,   # Shanghai → US
+        ("shanghai", "japan"):      22,   # Shanghai → Japan
+        ("ningbo", "us"):           42,   # Ningbo → US
+        ("ningbo", "europe"):       55,   # Ningbo → Europe
+        ("yantian", "us"):          43,   # Yantian → US
+        ("guangzhou", "us"):        44,   # Guangzhou → US
     }
 
     def get_route_days(self, origin: str = None, dest: str = None) -> int:
-        """Estimate sea freight days based on origin/destination ports."""
+        """Estimate sea freight days based on origin/destination country."""
         if origin and dest:
-            origin_lower = origin.lower().split(",")[0].split(" ")[0]
-            dest_lower = dest.lower().split(",")[0].split(" ")[0]
+            ol = origin.lower()
+            dl = dest.lower()
             for (o, d), days in self.SHIPPING_ROUTES.items():
-                if o in origin_lower and d in dest_lower:
-                    return days
-                if o in origin_lower:
-                    for d_key in [dest_lower, dest_lower[:3]]:
-                        if d_key in d:
+                if o in ol:
+                    # Match destination: US, Canada, Europe, Japan, Australia, Mexico
+                    for keyword in [d]:
+                        if keyword in dl or keyword in d:
                             return days
-            for (o, d), days in self.SHIPPING_ROUTES.items():
-                if o in origin_lower:
-                    return days  # best guess
-        return 25  # default sea freight
+            # Origin match only — use default for that origin
+            for (o, _), days in self.SHIPPING_ROUTES.items():
+                if o in ol:
+                    return days
+        return 45  # default: Shenzhen → US
 
     def get_lead_time(self) -> dict:
         """Get per-SKU lead time breakdown.
