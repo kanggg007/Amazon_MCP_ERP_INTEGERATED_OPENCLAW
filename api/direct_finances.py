@@ -507,6 +507,10 @@ async def pnl_settlement(store_id: str = "02", user_id: str = "master"):
             "settlements_scanned":rpt_count,
             "revenue":round(rev,2),
             "fba_fees":round(fees,2),
+            "fba_breakdown":{
+                "estimated_referral_fee_15pct":round(rev*0.15,2),
+                "estimated_fulfillment_fee":round(fees-rev*0.15,2),
+            },
             "ads_spend":round(ads,2),
             "promotions":round(promos,2),
             "refunds":round(refin,2),
