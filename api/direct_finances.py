@@ -419,6 +419,143 @@ CREATE TABLE IF NOT EXISTS support_cases (
 """
 
 
+@router.get("/pnl/{store_id}")
+async def pnl_settlement(store_id: str = "02", user_id: str = "master"):
+    """Pull all settlement reports + Finances API → True P&L."""
+    import os as os_mod, httpx, hashlib, hmac, time as t, json as j
+    from urllib.parse import urlparse, quote
+    from decimal import Decimal
+    
+    AK=os_mod.environ.get("STORE_01_AWS_ACCESS_KEY_ID","")
+    AS=os_mod.environ.get("STORE_01_AWS_SECRET_ACCESS_KEY","")
+    
+    def _sign(m,u,h,b):
+        p=urlparse(u);ad=t.strftime("%Y%m%dT%H%M%SZ",t.gmtime());ds=t.strftime("%Y%m%d",t.gmtime())
+        h["x-amz-date"]=ad;h["host"]=p.hostname
+        cu=quote(p.path,safe="/")or"/";ch="".join(f"{kl.lower()}:{v.strip()}\n" for kl,v in sorted(h.items()) if kl.lower() not in ("authorization",))
+        sh=";".join(sorted(kl.lower() for kl in h if kl.lower() not in ("authorization",)))
+        ph=hashlib.sha256(b.encode()).hexdigest()
+        cr="\n".join([m.upper(),cu,p.query,ch,sh,ph]);cs=f"{ds}/us-east-1/execute-api/aws4_request"
+        st="\n".join(["AWS4-HMAC-SHA256",ad,cs,hashlib.sha256(cr.encode()).hexdigest()])
+        def h8(k,m):
+            if isinstance(k,str):k=k.encode()
+            return hmac.new(k,m.encode(),hashlib.sha256).digest()
+        k1=h8(f"AWS4{AS}",ds);k2=h8(k1,"us-east-1");k3=h8(k2,"execute-api");k4=h8(k3,"aws4_request")
+        sig=hmac.new(k4,st.encode(),hashlib.sha256).hexdigest()
+        h["Authorization"]=f"AWS4-HMAC-SHA256 Credential={AK}/{cs}, SignedHeaders={sh}, Signature={sig}"
+        return h
+    
+    prefix=f"STORE_{store_id.upper()}"
+    cid=os_mod.environ.get(f"{prefix}_LWA_CLIENT_ID","")
+    csec=os_mod.environ.get(f"{prefix}_LWA_CLIENT_SECRET","")
+    ref=os_mod.environ.get(f"{prefix}_REFRESH_TOKEN_AMERICAS","")
+    if not cid or not ref: return {"error": f"No creds for store {store_id}"}
+    
+    with httpx.Client(timeout=60.0) as c:
+        r=c.post("https://api.amazon.com/auth/o2/token",json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref})
+        if r.status_code!=200: return {"error":"LWA failed"}
+        tk=r.json()["access_token"]
+        
+        # 1. Find all settlement reports
+        h={"x-amz-access-token":tk}
+        h=_sign("GET","https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=10",h,"")
+        r2=c.get("https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports?reportTypes=GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2&processingStatuses=DONE&pageSize=10",headers=h)
+        reports=r2.json().get("reports",[])
+        
+        rev,fees,ads,promos=0.0,0.0,0.0,0.0
+        rpt_count=0
+        for rpt in reports:
+            rid=rpt.get("reportId","")
+            h2={"x-amz-access-token":tk}
+            h2=_sign("GET",f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}",h2,"")
+            r3=c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/reports/{rid}",headers=h2)
+            if "reportDocumentId" not in r3.json(): continue
+            h3={"x-amz-access-token":tk}
+            h3=_sign("GET",f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{r3.json()['reportDocumentId']}",h3,"")
+            r4=c.get(f"https://sellingpartnerapi-na.amazon.com/reports/2021-06-30/documents/{r3.json()['reportDocumentId']}",headers=h3)
+            r5=c.get(r4.json()["url"])
+            rpt_count+=1
+            for line in r5.text.split("\n")[1:]:
+                if line.strip():
+                    cols=line.split("\t")
+                    if len(cols)>14:
+                        desc=cols[12].strip()
+                        try:amt=float(cols[14].replace(",","."))
+                        except:continue
+                        if desc=="ItemPrice":rev+=amt
+                        elif desc=="ItemFees":fees+=abs(amt)
+                        elif desc=="Cost of Advertising":ads+=abs(amt)
+                        elif desc=="Promotion":promos+=abs(amt)
+        
+        # 2. Refunds
+        refin=0.0
+        h4={"x-amz-access-token":tk}
+        h4=_sign("GET","https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter=2026-05-01T00:00:00Z&MaxResults=100",h4,"")
+        r6=c.get("https://sellingpartnerapi-na.amazon.com/finances/v0/financialEvents?PostedAfter=2026-05-01T00:00:00Z&MaxResults=100",headers=h4)
+        if r6.status_code==200:
+            for ev in r6.json().get("payload",{}).get("FinancialEvents",{}).get("RefundEventList",[]):
+                for item in ev.get("ShipmentItemAdjustmentList",[]):
+                    for ch in item.get("ItemChargeAdjustmentList",[]):
+                        try:refin+=abs(float(ch.get("ChargeAmount",{}).get("CurrencyAmount",0)))
+                        except:pass
+        
+        net_before_cogs=rev-fees-ads-promos-refin
+        
+        return {
+            "status":"ok",
+            "store_id":store_id,
+            "settlements_scanned":rpt_count,
+            "revenue":round(rev,2),
+            "fba_fees":round(fees,2),
+            "ads_spend":round(ads,2),
+            "promotions":round(promos,2),
+            "refunds":round(refin,2),
+            "net_before_cogs":round(net_before_cogs,2),
+            "margin_pct":round(net_before_cogs/rev*100,1) if rev>0 else 0,
+        }
+
+@router.get("/admin/fix-tables")
+async def fix_tables():
+    """Create missing tables for catalog."""
+    try:
+        from db.connection import get_engine
+        from sqlalchemy import text
+        engine = get_engine()
+        sql = """
+CREATE TABLE IF NOT EXISTS master_products (
+    id BIGSERIAL PRIMARY KEY, sku VARCHAR(255) NOT NULL,
+    product_name VARCHAR(512), category VARCHAR(128),
+    length_cm NUMERIC(8,2), width_cm NUMERIC(8,2), height_cm NUMERIC(8,2),
+    weight_kg NUMERIC(8,2),
+    manufacturing_cost_cny NUMERIC(12,2) DEFAULT 0,
+    packaging_cost_cny NUMERIC(12,2) DEFAULT 0,
+    inspection_cost_cny NUMERIC(12,2) DEFAULT 0,
+    exchange_rate NUMERIC(10,6) DEFAULT 0.14,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (sku)
+);
+CREATE TABLE IF NOT EXISTS product_store_mappings (
+    id BIGSERIAL PRIMARY KEY, sku VARCHAR(255) NOT NULL,
+    store_id VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id VARCHAR(32) NOT NULL, marketplace_name VARCHAR(32) NOT NULL,
+    asin VARCHAR(32) NOT NULL, selling_price NUMERIC(12,2) DEFAULT 0,
+    currency VARCHAR(8) DEFAULT 'USD',
+    freight_per_unit_cny NUMERIC(12,2) DEFAULT 0,
+    cbm_rate_cny NUMERIC(12,2) DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (store_id, marketplace_id, asin)
+);
+"""
+        with engine.connect() as conn:
+            for stmt in [s.strip() for s in sql.split(";") if s.strip()]:
+                conn.execute(text(stmt + ";"))
+                conn.commit()
+        return {"status": "ok", "message": "master_products + product_store_mappings created"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
+
 @router.get("/admin/create-tables")
 async def create_new_tables():
     """Create only the new tables (18-25)."""
