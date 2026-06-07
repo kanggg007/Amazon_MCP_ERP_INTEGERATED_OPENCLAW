@@ -970,10 +970,10 @@ async def catalog_margin(sku: str, selling_price: float, store_id: str = None,
 
 
 @app.post("/catalog/bulk-import")
-async def catalog_bulk_import(products: list, user_id: str = "master"):
+async def catalog_bulk_import(data: dict, user_id: str = "master"):
     """Bulk import products and mappings."""
     engine = ProductCatalogEngine()
-    result = engine.bulk_import(products)
+    result = engine.bulk_import(data.get("products", []))
     return {"status": "ok", **result}
 async def startup():
     try:
