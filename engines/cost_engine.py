@@ -61,7 +61,7 @@ class CostEngine:
             ).first()
 
             if not cost:
-                cost = SkuCost(store_id=self.store_id, sku=sku)
+                cost = AsinCost(store_id=self.store_id, asin=asin)
                 session.add(cost)
 
             if manufacturing_cny is not None:
@@ -131,7 +131,7 @@ class CostEngine:
         finally:
             session.close()
 
-    def compute_total_usd(self, cost: SkuCost, route: str = "us_slow") -> float:
+    def compute_total_usd(self, cost: AsinCost, route: str = "us_slow") -> float:
         """Compute total cost per unit in USD."""
         total_cny = (float(cost.manufacturing_cost_cny) +
                      float(cost.packaging_cost_cny) +
