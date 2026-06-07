@@ -22,6 +22,7 @@ from engines.return_refund_engine import ReturnRefundEngine
 from engines.profit_leakage_engine import ProfitLeakageEngine
 from engines.inventory_autopilot_engine import InventoryAutopilotEngine
 from engines.cost_engine import CostEngine
+from engines.product_catalog_engine import ProductCatalogEngine
 from engines.ccis_engine import CCISEngine
 from engines.reimbursement_engine import ReimbursementEngine
 from api.direct_finances import router as direct_finances_router
@@ -829,6 +830,7 @@ async def consolidate_po(asin: str, days: int = 90, user_id: str = "master"):
     """Consolidate PO across all stores for one ASIN."""
     require_store_access(user_id, "", "read")
     from engines.cost_engine import CostEngine
+    from engines.product_catalog_engine import ProductCatalogEngine
     from datetime import date, timedelta
     
     # All stores that could have this ASIN
@@ -889,7 +891,90 @@ async def consolidate_po(asin: str, days: int = 90, user_id: str = "master"):
     }
 
 
-@app.on_event("startup")
+
+# ─── Master Product Catalog Routes ───
+
+
+@app.post("/catalog/product")
+async def catalog_upsert_product(sku: str, product_name: str = None,
+                                   category: str = None,
+                                   length_cm: float = None, width_cm: float = None,
+                                   height_cm: float = None, weight_kg: float = None,
+                                   manufacturing_cny: float = None,
+                                   packaging_cny: float = None,
+                                   user_id: str = "master"):
+    """Create or update a master product (dimensions, COGS)."""
+    engine = ProductCatalogEngine()
+    result = engine.upsert_product(sku, product_name=product_name, category=category,
+                                    length_cm=length_cm, width_cm=width_cm,
+                                    height_cm=height_cm, weight_kg=weight_kg,
+                                    manufacturing_cny=manufacturing_cny,
+                                    packaging_cny=packaging_cny)
+    return {"status": "ok", **result}
+
+
+@app.get("/catalog/product/{sku}")
+async def catalog_get_product(sku: str, user_id: str = "master"):
+    """Get product details with all store mappings."""
+    engine = ProductCatalogEngine()
+    result = engine.get_product(sku)
+    return {"status": "ok", **result}
+
+
+@app.get("/catalog/products")
+async def catalog_list_products(user_id: str = "master"):
+    """List all master products."""
+    engine = ProductCatalogEngine()
+    products = engine.list_products()
+    return {"status": "ok", "products": products, "count": len(products)}
+
+
+@app.post("/catalog/mapping")
+async def catalog_add_mapping(sku: str, store_id: str, marketplace_name: str,
+                               asin: str, marketplace_id: str = "ATVPDKIKX0DER",
+                               selling_price: float = 0, currency: str = "USD",
+                               freight_per_unit_cny: float = 0,
+                               user_id: str = "master"):
+    """Map a product to a store + marketplace with freight."""
+    engine = ProductCatalogEngine()
+    result = engine.add_mapping(sku, store_id, marketplace_id, marketplace_name, asin,
+                                 selling_price=selling_price, currency=currency,
+                                 freight_per_unit_cny=freight_per_unit_cny)
+    return {"status": "ok", **result}
+
+
+@app.get("/catalog/mappings")
+async def catalog_list_mappings(store_id: str = None, user_id: str = "master"):
+    """List all product↔store mappings."""
+    engine = ProductCatalogEngine()
+    mappings = engine.get_mappings(store_id=store_id)
+    return {"status": "ok", "mappings": mappings, "count": len(mappings)}
+
+
+@app.get("/catalog/true-cost/{sku}")
+async def catalog_true_cost(sku: str, store_id: str = None, marketplace: str = "US",
+                             user_id: str = "master"):
+    """Get true per-unit cost in USD for a product."""
+    engine = ProductCatalogEngine()
+    cost = engine.get_true_cost(sku, store_id=store_id, marketplace=marketplace)
+    return {"status": "ok", **cost}
+
+
+@app.get("/catalog/margin/{sku}")
+async def catalog_margin(sku: str, selling_price: float, store_id: str = None,
+                          user_id: str = "master"):
+    """Get true profit margin for a product."""
+    engine = ProductCatalogEngine()
+    margin = engine.get_margin(sku, selling_price, store_id=store_id)
+    return {"status": "ok", **margin}
+
+
+@app.post("/catalog/bulk-import")
+async def catalog_bulk_import(products: list, user_id: str = "master"):
+    """Bulk import products and mappings."""
+    engine = ProductCatalogEngine()
+    result = engine.bulk_import(products)
+    return {"status": "ok", **result}
 async def startup():
     try:
         from auth import get_store_registry

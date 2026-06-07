@@ -638,6 +638,47 @@ class AsinCost(Base):
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+
+class MasterProduct(Base):
+    """Single source of truth for product specs."""
+    __tablename__ = "master_products"
+    __table_args__ = (UniqueConstraint("sku"),)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sku = Column(String(255), nullable=False)
+    product_name = Column(String(512))
+    category = Column(String(128))
+    length_cm = Column(Numeric(8, 2))
+    width_cm = Column(Numeric(8, 2))
+    height_cm = Column(Numeric(8, 2))
+    weight_kg = Column(Numeric(8, 2))
+    manufacturing_cost_cny = Column(Numeric(12, 2), default=0)
+    packaging_cost_cny = Column(Numeric(12, 2), default=0)
+    inspection_cost_cny = Column(Numeric(12, 2), default=0)
+    exchange_rate = Column(Numeric(10, 6), default=0.14)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ProductStoreMapping(Base):
+    """SKU → Store + Marketplace + ASIN + Freight mapping."""
+    __tablename__ = "product_store_mappings"
+    __table_args__ = (UniqueConstraint("store_id", "marketplace_id", "asin"),)
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sku = Column(String(255), nullable=False)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), nullable=False)
+    marketplace_name = Column(String(32), nullable=False)
+    asin = Column(String(32), nullable=False)
+    selling_price = Column(Numeric(12, 2), default=0)
+    currency = Column(String(8), default="USD")
+    freight_per_unit_cny = Column(Numeric(12, 2), default=0)
+    cbm_rate_cny = Column(Numeric(12, 2), default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def create_all_tables():
     """Create all tables (for development/testing)."""
     Base.metadata.create_all(bind=get_engine())

@@ -1250,4 +1250,71 @@ CREATE TABLE IF NOT EXISTS asin_costs (
 CREATE INDEX IF NOT EXISTS idx_sc_sku ON sku_costs(store_id, sku);
 
 
+
+-- ============================================================================
+-- 36. MASTER_PRODUCTS (Single source of truth for product specs)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS master_products (
+    id                  BIGSERIAL PRIMARY KEY,
+    sku                 VARCHAR(255) NOT NULL,
+    product_name        VARCHAR(512),
+    category            VARCHAR(128),
+    length_cm           NUMERIC(8,2),
+    width_cm            NUMERIC(8,2),
+    height_cm           NUMERIC(8,2),
+    weight_kg           NUMERIC(8,2),
+    cbm                 NUMERIC(10,6) GENERATED ALWAYS AS (
+                            CASE WHEN length_cm > 0 AND width_cm > 0 AND height_cm > 0
+                            THEN (length_cm * width_cm * height_cm) / 1000000.0
+                            ELSE NULL END
+                        ) STORED,
+    manufacturing_cost_cny NUMERIC(12,2) DEFAULT 0,
+    packaging_cost_cny    NUMERIC(12,2) DEFAULT 0,
+    inspection_cost_cny   NUMERIC(12,2) DEFAULT 0,
+    total_cost_cny        NUMERIC(12,2) GENERATED ALWAYS AS (
+                            COALESCE(manufacturing_cost_cny, 0) + 
+                            COALESCE(packaging_cost_cny, 0) + 
+                            COALESCE(inspection_cost_cny, 0)
+                        ) STORED,
+    exchange_rate         NUMERIC(10,6) DEFAULT 0.14,
+    total_cost_usd        NUMERIC(12,2) GENERATED ALWAYS AS (
+                            (COALESCE(manufacturing_cost_cny, 0) + 
+                             COALESCE(packaging_cost_cny, 0) + 
+                             COALESCE(inspection_cost_cny, 0)) * COALESCE(exchange_rate, 0.14)
+                        ) STORED,
+    is_active             BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (sku)
+);
+CREATE INDEX IF NOT EXISTS idx_mp_sku ON master_products(sku);
+CREATE INDEX IF NOT EXISTS idx_mp_active ON master_products(is_active);
+
+-- ============================================================================
+-- 37. PRODUCT_STORE_MAPPINGS (SKU → Store + Marketplace + ASIN + Freight)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS product_store_mappings (
+    id                  BIGSERIAL PRIMARY KEY,
+    sku                 VARCHAR(255) NOT NULL REFERENCES master_products(sku),
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    marketplace_id      VARCHAR(32) NOT NULL,
+    marketplace_name    VARCHAR(32) NOT NULL,
+    asin                VARCHAR(32) NOT NULL,
+    selling_price       NUMERIC(12,2) DEFAULT 0,
+    currency            VARCHAR(8) DEFAULT 'USD',
+    freight_per_unit_cny NUMERIC(12,2) DEFAULT 0,
+    cbm_rate_cny        NUMERIC(12,2) DEFAULT 0,
+    total_freight_cny    NUMERIC(12,2) GENERATED ALWAYS AS (
+                            COALESCE(freight_per_unit_cny, 0)
+                        ) STORED,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, marketplace_id, asin)
+);
+CREATE INDEX IF NOT EXISTS idx_psm_sku ON product_store_mappings(sku);
+CREATE INDEX IF NOT EXISTS idx_psm_store ON product_store_mappings(store_id);
+CREATE INDEX IF NOT EXISTS idx_psm_market ON product_store_mappings(marketplace_id);
+
+
 COMMIT;
