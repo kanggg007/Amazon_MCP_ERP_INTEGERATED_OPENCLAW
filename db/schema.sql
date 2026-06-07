@@ -1150,7 +1150,7 @@ CREATE TABLE IF NOT EXISTS inventory_risk_forecast (
     status              VARCHAR(32) DEFAULT 'active',
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (store_id, sku)
+    UNIQUE (store_id, asin)
 );
 CREATE INDEX IF NOT EXISTS idx_irf_risk ON inventory_risk_forecast(stockout_risk_peak);
 CREATE INDEX IF NOT EXISTS idx_irf_status ON inventory_risk_forecast(status);
@@ -1178,7 +1178,7 @@ CREATE TABLE IF NOT EXISTS supplier_lead_times (
     is_active           BOOLEAN NOT NULL DEFAULT TRUE,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (store_id, sku)
+    UNIQUE (store_id, asin)
 );
 CREATE INDEX IF NOT EXISTS idx_slt_sku ON supplier_lead_times(store_id, sku);
 
@@ -1222,7 +1222,7 @@ CREATE INDEX IF NOT EXISTS idx_slt_country ON supplier_lead_times(destination_co
 -- ============================================================================
 -- 35. SKU_COSTS (COGS + logistics per SKU in CNY)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS sku_costs (
+CREATE TABLE IF NOT EXISTS asin_costs (
     id                  BIGSERIAL PRIMARY KEY,
     store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
     sku                 VARCHAR(255) NOT NULL,
@@ -1245,7 +1245,7 @@ CREATE TABLE IF NOT EXISTS sku_costs (
     is_active             BOOLEAN NOT NULL DEFAULT TRUE,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (store_id, sku)
+    UNIQUE (store_id, asin)
 );
 CREATE INDEX IF NOT EXISTS idx_sc_sku ON sku_costs(store_id, sku);
 

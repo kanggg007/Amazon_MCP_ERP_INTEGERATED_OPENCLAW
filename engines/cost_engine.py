@@ -11,7 +11,7 @@ from decimal import Decimal
 from sqlalchemy import func
 
 from db.connection import get_session
-from db.models import SkuCost
+from db.models import AsinCost
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +48,16 @@ class CostEngine:
 
     # ─── CRUD Operations ───
 
-    def set_costs(self, sku: str, manufacturing_cny: float = None,
+    def set_costs(self, asin: str, sku: str = None, manufacturing_cny: float = None,
                   packaging_cny: float = None, inspection_cny: float = None,
                   freight_route: str = None, freight_cny: float = None,
                   exchange_rate: float = None) -> dict:
         """Set or update costs for a SKU."""
         session = get_session()
         try:
-            cost = session.query(SkuCost).filter(
-                SkuCost.store_id == self.store_id,
-                SkuCost.sku == sku,
+            cost = session.query(AsinCost).filter(
+                AsinCost.store_id == self.store_id,
+                AsinCost.asin == sku,
             ).first()
 
             if not cost:
@@ -82,7 +82,7 @@ class CostEngine:
             session.commit()
 
             return {
-                "sku": sku,
+                "asin": asin,
                 "cost_cny": {
                     "manufacturing": float(cost.manufacturing_cost_cny),
                     "packaging": float(cost.packaging_cost_cny),
@@ -98,17 +98,17 @@ class CostEngine:
         finally:
             session.close()
 
-    def get_costs(self, sku: str) -> dict:
+    def get_costs(self, asin: str) -> dict:
         """Get all costs for a SKU."""
         session = get_session()
         try:
-            cost = session.query(SkuCost).filter(
-                SkuCost.store_id == self.store_id,
-                SkuCost.sku == sku,
+            cost = session.query(AsinCost).filter(
+                AsinCost.store_id == self.store_id,
+                AsinCost.asin == sku,
             ).first()
 
             if not cost:
-                return {"sku": sku, "cost_cny": {}, "total_cost_usd": 0, "configured": False}
+                return {"asin": asin, "cost_cny": {}, "total_cost_usd": 0, "configured": False}
 
             freight = {}
             for route, field in self.ROUTE_FIELDS.items():
@@ -117,7 +117,7 @@ class CostEngine:
                     freight[route] = float(val)
 
             return {
-                "sku": sku,
+                "asin": asin,
                 "configured": True,
                 "cost_cny": {
                     "manufacturing": float(cost.manufacturing_cost_cny),
@@ -144,13 +144,13 @@ class CostEngine:
         rate = float(cost.exchange_rate) or self.DEFAULT_EXCHANGE_RATE
         return round(total_cny * rate, 2)
 
-    def get_true_cost(self, sku: str, route: str = "us_slow") -> float:
+    def get_true_cost(self, asin: str, route: str = "us_slow") -> float:
         """Get the true per-unit cost in USD including freight for a route."""
         session = get_session()
         try:
-            cost = session.query(SkuCost).filter(
-                SkuCost.store_id == self.store_id,
-                SkuCost.sku == sku,
+            cost = session.query(AsinCost).filter(
+                AsinCost.store_id == self.store_id,
+                AsinCost.asin == sku,
             ).first()
 
             if not cost:
@@ -159,10 +159,10 @@ class CostEngine:
         finally:
             session.close()
 
-    def get_profit_margin(self, sku: str, selling_price: float,
+    def get_profit_margin(self, asin: str, selling_price: float,
                            route: str = "us_slow") -> dict:
         """Calculate true profit margin for a SKU at a given selling price."""
-        total_cost = self.get_true_cost(sku, route)
+        total_cost = self.get_true_cost(asin, route)
         if total_cost == 0 or selling_price == 0:
             return {"error": "Missing cost or price data"}
 
@@ -170,7 +170,7 @@ class CostEngine:
         margin_pct = (gross_margin / selling_price) * 100
 
         return {
-            "sku": sku,
+            "asin": asin,
             "selling_price_usd": selling_price,
             "total_cost_usd": total_cost,
             "gross_margin_usd": round(gross_margin, 2),

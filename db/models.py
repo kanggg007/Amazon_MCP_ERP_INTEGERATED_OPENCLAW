@@ -609,15 +609,17 @@ class SupplierLeadTime(Base):
 
 
 
-class SkuCost(Base):
-    """Per-SKU COGS + logistics costs in CNY."""
-    __tablename__ = "sku_costs"
+class AsinCost(Base):
+    """Per-ASIN COGS + logistics costs in CNY."""
+    __tablename__ = "asin_costs"
     __table_args__ = (
-        UniqueConstraint("store_id", "sku"),
+        UniqueConstraint("store_id", "asin"),
     )
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
-    sku = Column(String(255), nullable=False)
+    asin = Column(String(32), nullable=False)
+    sku = Column(String(255))
+    product_title = Column(String(512))
     manufacturing_cost_cny = Column(Numeric(12, 2), default=0)
     packaging_cost_cny = Column(Numeric(12, 2), default=0)
     inspection_cost_cny = Column(Numeric(12, 2), default=0)

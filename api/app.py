@@ -394,7 +394,7 @@ async def get_profit_leakage_sku(store_id: str, days: int = 30, user_id: str = "
 
 
 @app.get("/pld/sku/{store_id}/{sku}")
-async def get_sku_profit(store_id: str, sku: str, days: int = 30, user_id: str = "master"):
+async def get_sku_profit(store_id: str, asin: str, days: int = 30, user_id: str = "master"):
     """Full true profit + leakage breakdown for one SKU."""
     require_store_access(user_id, store_id, "read")
     engine = ProfitLeakageEngine(store_id)
@@ -424,7 +424,7 @@ async def scan_sku_leakage(store_id: str, days: int = 30, min_loss: float = 100.
 
 
 @app.get("/pld/patterns/{store_id}/{sku}")
-async def get_profit_patterns(store_id: str, sku: str, days: int = 90, user_id: str = "master"):
+async def get_profit_patterns(store_id: str, asin: str, days: int = 90, user_id: str = "master"):
     """AI pattern detection for profit leakage.
     Returns: return reason clusters, wasted ad keywords, unclaimed FBA reimbursements.
     """
@@ -588,7 +588,7 @@ async def voc_by_source(store_id: str, days: int = 30, user_id: str = "master",
 
 @app.post("/ccis/process")
 async def ccis_process_message(store_id: str, body: str, subject: str = "",
-                                amazon_order_id: str = "", sku: str = "",
+                                amazon_order_id: str = "", asin: str = "",
                                 user_id: str = "master"):
     """Full pipeline: classify → risk → draft → approval."""
     require_store_access(user_id, store_id, "write")
@@ -670,7 +670,7 @@ async def get_fba_rate(store_id: str, user_id: str = "master"):
 
 
 @app.post("/pld/estimate-daily/{store_id}")
-async def estimate_daily_profit(store_id: str, revenue: float, sku: str = "",
+async def estimate_daily_profit(store_id: str, revenue: float, asin: str = "",
                                  cogs_rate: float = 0.5, ads_rate: float = 0.03,
                                  user_id: str = "master"):
     """Estimate daily profit using historical FBA fee rates.
