@@ -21,6 +21,7 @@ from engines.voc_engine import VoCEngine
 from engines.return_refund_engine import ReturnRefundEngine
 from engines.profit_leakage_engine import ProfitLeakageEngine
 from engines.inventory_autopilot_engine import InventoryAutopilotEngine
+from engines.cost_engine import CostEngine
 from engines.ccis_engine import CCISEngine
 from engines.reimbursement_engine import ReimbursementEngine
 from api.direct_finances import router as direct_finances_router

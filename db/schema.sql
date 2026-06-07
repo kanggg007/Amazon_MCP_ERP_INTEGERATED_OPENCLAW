@@ -1218,4 +1218,36 @@ CREATE INDEX IF NOT EXISTS idx_slt_route ON supplier_lead_times(origin_port, des
 CREATE INDEX IF NOT EXISTS idx_slt_country ON supplier_lead_times(destination_country);
 
 
+
+-- ============================================================================
+-- 35. SKU_COSTS (COGS + logistics per SKU in CNY)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS sku_costs (
+    id                  BIGSERIAL PRIMARY KEY,
+    store_id            VARCHAR(64) NOT NULL REFERENCES stores(store_id),
+    sku                 VARCHAR(255) NOT NULL,
+    -- Upstream costs (CNY)
+    manufacturing_cost_cny NUMERIC(12,2) NOT NULL DEFAULT 0,    -- Factory price per unit
+    packaging_cost_cny    NUMERIC(12,2) DEFAULT 0,               -- Packaging per unit
+    inspection_cost_cny   NUMERIC(12,2) DEFAULT 0,               -- QC inspection per unit
+    -- Sea freight costs (CNY per unit, by route)
+    freight_us_slow_cny   NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→US slow per unit
+    freight_us_fast_cny   NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→US fast per unit
+    freight_canada_cny    NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→Canada per unit
+    freight_europe_cny    NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→Europe per unit
+    freight_japan_cny     NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→Japan per unit
+    freight_australia_cny NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→Australia per unit
+    freight_mexico_cny    NUMERIC(12,2) DEFAULT 0,               -- Shenzhen→Mexico per unit
+    -- Derived
+    total_cost_usd        NUMERIC(12,2) DEFAULT 0,               -- Computed total in USD
+    exchange_rate         NUMERIC(10,6) DEFAULT 0.14,            -- CNY→USD (default ~7.15)
+    notes                 TEXT,
+    is_active             BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (store_id, sku)
+);
+CREATE INDEX IF NOT EXISTS idx_sc_sku ON sku_costs(store_id, sku);
+
+
 COMMIT;

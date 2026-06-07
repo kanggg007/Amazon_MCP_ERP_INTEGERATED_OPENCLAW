@@ -608,6 +608,34 @@ class SupplierLeadTime(Base):
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+
+class SkuCost(Base):
+    """Per-SKU COGS + logistics costs in CNY."""
+    __tablename__ = "sku_costs"
+    __table_args__ = (
+        UniqueConstraint("store_id", "sku"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    sku = Column(String(255), nullable=False)
+    manufacturing_cost_cny = Column(Numeric(12, 2), default=0)
+    packaging_cost_cny = Column(Numeric(12, 2), default=0)
+    inspection_cost_cny = Column(Numeric(12, 2), default=0)
+    freight_us_slow_cny = Column(Numeric(12, 2), default=0)
+    freight_us_fast_cny = Column(Numeric(12, 2), default=0)
+    freight_canada_cny = Column(Numeric(12, 2), default=0)
+    freight_europe_cny = Column(Numeric(12, 2), default=0)
+    freight_japan_cny = Column(Numeric(12, 2), default=0)
+    freight_australia_cny = Column(Numeric(12, 2), default=0)
+    freight_mexico_cny = Column(Numeric(12, 2), default=0)
+    total_cost_usd = Column(Numeric(12, 2), default=0)
+    exchange_rate = Column(Numeric(10, 6), default=0.14)
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def create_all_tables():
     """Create all tables (for development/testing)."""
     Base.metadata.create_all(bind=get_engine())
