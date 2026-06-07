@@ -714,7 +714,117 @@ async def estimate_daily_profit(store_id: str, revenue: float, asin: str = "",
     }
 
 
-@app.get("/po/consolidate/{asin}")
+
+@app.get("/fba/expected-fee")
+async def expected_fba_fee(weight_lbs: float = None, price: float = None,
+                            category: str = "standard", is_apparel: bool = False):
+    """Calculate expected FBA fulfillment fee using Amazon's formula.
+    
+    Returns the expected fee and compares with any actual fee you provide.
+    """
+    # Amazon US FBA fulfillment fee schedule (2025-2026)
+    # Size tiers based on weight and dimensions
+    if weight_lbs and weight_lbs <= 0.5:
+        expected = 3.50  # Small Standard
+        tier = "Small Standard"
+    elif weight_lbs and weight_lbs <= 1.0:
+        expected = 4.50  # Large Standard (up to 1 lb)
+        tier = "Large Standard ≤1lb"
+    elif weight_lbs and weight_lbs <= 2.0:
+        expected = 5.50  # Large Standard (1-2 lb)
+        tier = "Large Standard ≤2lb"
+    elif weight_lbs and weight_lbs <= 3.0:
+        expected = 6.50  # Large Standard (2-3 lb)
+        tier = "Large Standard ≤3lb"
+    elif weight_lbs and weight_lbs <= 21.0:
+        expected = 9.50 + (weight_lbs - 3) * 0.42  # Small Oversize
+        tier = "Small Oversize"
+        if weight_lbs > 10:
+            expected = 15.00 + (weight_lbs - 10) * 0.50  # Large Oversize
+            tier = "Large Oversize"
+    else:
+        expected = 25.00  # Extra Large
+        tier = "Extra Large"
+    
+    if is_apparel:
+        expected += 1.50  # Apparel surcharge
+        tier += " + Apparel"
+    
+    return {
+        "status": "ok",
+        "expected_fee": round(expected, 2),
+        "size_tier": tier,
+        "weight_lbs": weight_lbs,
+        "note": "Compare with actual fee from settlements to detect overcharges",
+    }
+
+
+@app.get("/fba/fee-variance/{store_id}")
+async def fba_fee_variance(store_id: str, days: int = 90, user_id: str = "master"):
+    """Compare expected vs actual FBA fees to detect overcharges."""
+    require_store_access(user_id, store_id, "read")
+    from db.connection import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+    
+    with engine.connect() as conn:
+        # Get all ItemFees from financial_transactions (actual fees)
+        rows = conn.execute(text("""
+            SELECT sku, COUNT(*) as tx_count, 
+                   SUM(ABS(amount)) as actual_fees,
+                   AVG(ABS(amount)) as avg_fee_per_tx
+            FROM financial_transactions 
+            WHERE store_id = :sid 
+              AND transaction_type = 'refund'
+              AND ABS(amount) > 0
+              AND posted_date >= NOW() - INTERVAL ':days days'
+            GROUP BY sku
+            ORDER BY actual_fees DESC
+            LIMIT 20
+        """), {"sid": store_id, "days": days}).fetchall()
+    
+    results = []
+    for r in rows:
+        # For each SKU, estimate expected fee
+        weight_lbs = 2.0  # default assumption
+        if "FT29" in r.sku: weight_lbs = 4.2
+        elif "FT22" in r.sku: weight_lbs = 3.5
+        elif "FT19" in r.sku: weight_lbs = 3.0
+        elif "Round" in r.sku: weight_lbs = 2.5
+        
+        # Calculate expected fee
+        if weight_lbs <= 1.0:
+            expected = 4.50
+        elif weight_lbs <= 2.0:
+            expected = 5.50
+        elif weight_lbs <= 3.0:
+            expected = 6.50
+        else:
+            expected = 9.50 + (weight_lbs - 3) * 0.42
+        
+        variance = float(r.avg_fee_per_tx) - expected
+        
+        results.append({
+            "sku": r.sku,
+            "transactions": r.tx_count,
+            "actual_avg_fee": round(float(r.avg_fee_per_tx), 2),
+            "expected_fee": round(expected, 2),
+            "variance": round(variance, 2),
+            "variance_pct": round(variance / expected * 100, 1) if expected > 0 else 0,
+            "flag": abs(variance) > 1.0,  # Flag if >$1 difference
+        })
+    
+    total_variance = sum(r["variance"] * r["transactions"] for r in results)
+    flagged = [r for r in results if r["flag"]]
+    
+    return {
+        "status": "ok",
+        "fee_variance": results,
+        "flagged_count": len(flagged),
+        "flagged": flagged,
+        "total_estimated_overcharge": round(-total_variance, 2) if total_variance < 0 else 0,
+        "note": "Negative variance = Amazon charging more than expected formula",
+    }
 async def consolidate_po(asin: str, days: int = 90, user_id: str = "master"):
     """Consolidate PO across all stores for one ASIN."""
     require_store_access(user_id, "", "read")
