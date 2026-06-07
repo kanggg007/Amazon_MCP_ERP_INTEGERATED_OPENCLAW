@@ -712,6 +712,74 @@ async def estimate_daily_profit(store_id: str, revenue: float, asin: str = "",
         "note": "Weekly settlement will correct these estimates with actual fees",
         "store_id": store_id,
     }
+
+
+@app.get("/po/consolidate/{asin}")
+async def consolidate_po(asin: str, days: int = 90, user_id: str = "master"):
+    """Consolidate PO across all stores for one ASIN."""
+    require_store_access(user_id, "", "read")
+    from engines.cost_engine import CostEngine
+    from datetime import date, timedelta
+    
+    # All stores that could have this ASIN
+    store_info = {
+        "01": {"name": "Heliumx", "monthly": 222},
+        "02": {"name": "CUCZZUS", "monthly": 450},
+        "03": {"name": "BOOLUU", "monthly": 200},
+    }
+    lead_time_days = 75  # factory 30 + sea 45
+    
+    results = []
+    for sid, info in store_info.items():
+        stock = 0
+        from db.connection import get_engine
+        from sqlalchemy import text
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT SUM(sellable_units) FROM inventory_snapshot 
+                WHERE store_id = :sid AND asin = :asin
+            """), {"sid": sid, "asin": asin}).fetchone()
+            if row and row[0]:
+                stock = int(row[0])
+        
+        monthly = info["monthly"]
+        daily = monthly / 30
+        cover = round(stock / max(daily, 1), 1) if stock > 0 else 0
+        
+        if cover < lead_time_days:
+            risk = "critical" if cover < lead_time_days * 0.7 else "warning"
+        else:
+            risk = "safe"
+        
+        results.append({
+            "store": info["name"],
+            "stock": stock,
+            "monthly_sales": monthly,
+            "days_of_cover": cover,
+            "risk": risk,
+        })
+    
+    total_monthly = sum(r["monthly_sales"] for r in results)
+    total_stock = sum(r["stock"] for r in results)
+    daily_total = total_monthly / 30
+    reorder_point = int(lead_time_days * daily_total)
+    recommended_po = max(0, int(lead_time_days * daily_total * 1.2) - total_stock)
+    
+    return {
+        "status": "ok",
+        "asin": asin,
+        "consolidation": results,
+        "total_daily_demand": round(daily_total, 1),
+        "total_stock": total_stock,
+        "lead_time_days": lead_time_days,
+        "reorder_point": reorder_point,
+        "recommended_po_qty": recommended_po,
+        "action": "Order now" if recommended_po > 0 else "Stock sufficient",
+    }
+
+
+@app.on_event("startup")
 async def startup():
     try:
         from auth import get_store_registry
