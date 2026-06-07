@@ -42,39 +42,56 @@ class InventoryAutopilotEngine:
     # Common China → World sea freight routes (days)
     # Shenzhen → Destination sea freight (slow channel, port → FBA warehouse)
     SHIPPING_ROUTES = {
-        ("shenzhen", "us"):        45,   # Shenzhen → US FBA warehouse (slow channel)
-        ("shenzhen", "canada"):     50,   # Shenzhen → Canada FBA warehouse
-        ("shenzhen", "europe"):     60,   # Shenzhen → EU FBA warehouse (DE/UK/FR)
-        ("shenzhen", "japan"):      25,   # Shenzhen → Japan FBA warehouse
-        ("shenzhen", "australia"):  60,   # Shenzhen → Australia FBA warehouse
-        ("shenzhen", "mexico"):     40,   # Shenzhen → Mexico FBA warehouse
-        # Other China ports (shorter if closer to destination)
-        ("shanghai", "us"):         42,   # Shanghai → US
-        ("shanghai", "japan"):      22,   # Shanghai → Japan
-        ("ningbo", "us"):           42,   # Ningbo → US
-        ("ningbo", "europe"):       55,   # Ningbo → Europe
-        ("yantian", "us"):          43,   # Yantian → US
-        ("guangzhou", "us"):        44,   # Guangzhou → US
+        # Slow channel (sea freight, consolidated)
+        ("shenzhen", "us_slow"):       45,   # Shenzhen → US (slow consolidated sea)
+        ("shenzhen", "us_fast"):       25,   # Shenzhen → US (fast channel / air)
+        ("shenzhen", "canada"):        50,   # Shenzhen → Canada FBA
+        ("shenzhen", "europe"):        60,   # Shenzhen → EU FBA (DE/UK/FR)
+        ("shenzhen", "japan"):         25,   # Shenzhen → Japan FBA
+        ("shenzhen", "australia"):     60,   # Shenzhen → Australia FBA
+        ("shenzhen", "mexico"):        40,   # Shenzhen → Mexico FBA
+        # Other China ports
+        ("shanghai", "us"):            42,   # Shanghai → US
+        ("shanghai", "japan"):         22,   # Shanghai → Japan
+        ("ningbo", "us"):              42,   # Ningbo → US
+        ("ningbo", "europe"):          55,   # Ningbo → Europe
+        ("yantian", "us"):             43,   # Yantian → US
+        ("guangzhou", "us"):           44,   # Guangzhou → US
     }
 
-    def get_route_days(self, origin: str = None, dest: str = None) -> int:
-        """Estimate sea freight days based on origin/destination country."""
+    def get_route_days(self, origin: str = None, dest: str = None, fast_channel: bool = False) -> int:
+        """Estimate logistics days based on origin/destination and channel speed.
+        
+        Args:
+            fast_channel: True = fast channel (25 days US only), False = slow channel
+        """
         if origin and dest:
             ol = origin.lower()
             dl = dest.lower()
+            # If fast channel requested for US
+            if fast_channel and ("us" in dl or "united states" in dl or "america" in dl):
+                for (o, d), days in self.SHIPPING_ROUTES.items():
+                    if o in ol and "fast" in d:
+                        return days
+                return 25  # default fast
+            # Slow channel or non-US
+            for (o, d), days in self.SHIPPING_ROUTES.items():
+                if o in ol and "slow" not in d and "fast" not in d:
+                    if d.split("_")[0] in dl:
+                        return days
+            # Match generic country names
             for (o, d), days in self.SHIPPING_ROUTES.items():
                 if o in ol:
-                    # Match destination: US, Canada, Europe, Japan, Australia, Mexico
-                    for keyword in [d]:
-                        if keyword in dl or keyword in d:
-                            return days
-            # Origin match only — use default for that origin
+                    keyword = d.split("_")[0]
+                    if keyword in dl:
+                        return days
+            # Fallback: origin match
             for (o, _), days in self.SHIPPING_ROUTES.items():
                 if o in ol:
                     return days
-        return 45  # default: Shenzhen → US
+        return 45  # default: Shenzhen → US (slow)
 
-    def get_lead_time(self) -> dict:
+    def get_lead_time(self, fast_channel: bool = False) -> dict:
         """Get per-SKU lead time breakdown.
         Returns dict with factory, logistics, route info.
         Falls back to defaults if not configured.
@@ -100,7 +117,7 @@ class InventoryAutopilotEngine:
                     "shipping_method": slt.shipping_method,
                 }
             # Estimate from route
-            route_days = self.get_route_days("shenzhen", "us_west")
+            route_days = self.get_route_days("shenzhen", "us", fast_channel=fast_channel)
             return {
                 "factory_days": 30,
                 "logistics_days": route_days,
@@ -230,13 +247,14 @@ class InventoryAutopilotEngine:
             session.close()
 
     def analyze_risk(self, on_hand: int = None, lead_time_days: int = None,
-                     ads_mult: float = 1.0, promo_mult: float = 1.0) -> dict:
+                     ads_mult: float = 1.0, promo_mult: float = 1.0,
+                     fast_channel: bool = False) -> dict:
         """
         Core risk analysis.
         Days of Cover vs Lead Time → 3-stage risk system.
         """
         on_hand = on_hand or self.get_current_inventory()
-        lt_info = self.get_lead_time()
+        lt_info = self.get_lead_time(fast_channel=fast_channel)
         if isinstance(lt_info, dict):
             lead_time_days = lead_time_days or lt_info.get("total", self.DEFAULT_LEAD_TIME_DAYS)
         else:
@@ -302,6 +320,7 @@ class InventoryAutopilotEngine:
             "estimated_stockout_peak": stockout_peak.isoformat(),
             "recommended_po_qty": recommended_po,
             "recommended_order_date": order_date.isoformat() if order_date else None,
+            "shipping_channel": "fast" if fast_channel else "slow",
             "peak_season_mode": current_month in self.PEAK_MONTHS,
             "pre_peak_mode": current_month in self.PRE_PEAK_MONTHS,
         }
