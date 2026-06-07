@@ -46,6 +46,51 @@ class CostEngine:
         # Could fetch from live API in future
         return self.DEFAULT_EXCHANGE_RATE
 
+    # ─── Sea Freight Formula (Kang's Logic) ───
+
+    FREIGHT_PER_KG = {"us_slow": 5, "us_fast": 15}  # CNY per kg
+    FREIGHT_PER_CBM = {"us": 1200, "ca": 1200, "jp": 900, "europe": 1500, "au": 1500}  # CNY per CBM
+
+    def calculate_freight(self, weight_kg: float, length_cm: float, width_cm: float,
+                          height_cm: float, route: str = "us_slow") -> float:
+        """Calculate sea freight cost using Kang's logic.
+        
+        US: Per kg (slow=5, fast=15 CNY/kg)
+        JP/US/EU/AU: Per CBM (volume-based pricing)
+        Returns cost in CNY.
+        """
+        cbm = (length_cm * width_cm * height_cm) / 1000000 if all([length_cm, width_cm, height_cm]) else 0
+        
+        # Per KG pricing (US)
+        if route in self.FREIGHT_PER_KG and weight_kg:
+            return weight_kg * self.FREIGHT_PER_KG[route]
+        
+        # Per CBM pricing
+        if cbm > 0:
+            route_key = route.split("_")[0]  # "us_slow" -> "us"
+            rate = self.FREIGHT_PER_CBM.get(route_key, 1200)
+            return cbm * rate
+        
+        return 0  # fallback
+
+    def get_freight_breakdown(self, weight_kg: float, length_cm: float,
+                               width_cm: float, height_cm: float) -> dict:
+        """Get freight cost for all routes."""
+        cbm = (length_cm * width_cm * height_cm) / 1000000 if all([length_cm, width_cm, height_cm]) else 0
+        routes = {}
+        
+        # Per KG routes
+        for route, rate in self.FREIGHT_PER_KG.items():
+            if weight_kg:
+                routes[route] = round(weight_kg * rate, 2)
+        
+        # Per CBM routes
+        for route, rate in self.FREIGHT_PER_CBM.items():
+            if cbm > 0:
+                routes[f"{route}_cbm"] = round(cbm * rate, 2)
+        
+        return {"cbm": round(cbm, 4), "weight_kg": weight_kg, "routes": routes}
+
     # ─── CRUD Operations ───
 
     def set_costs(self, asin: str, sku: str = None, manufacturing_cny: float = None,
