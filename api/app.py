@@ -171,11 +171,9 @@ async def privacy_consent():
 <head><meta charset="UTF-8"><title>Privacy Consent — Amazon Ads API</title></head>
 <body>
 <h1>Privacy Consent for Amazon Ads API</h1>
-<p>I, acting on behalf of Megapower and all related Amazon seller accounts
-(including but not limited to CUCZZUS/TeaFruitix, BOOLUU, Heliumx/HeliumAlx),
-hereby consent to Amazon processing our advertising data through the Amazon
-Ads API for the purpose of analyzing ad performance and optimizing advertising
-campaigns across all stores.</p>
+<p>I, acting on behalf of Megapower, hereby consent to Amazon processing
+our advertising data through the Amazon Ads API for the purpose of
+analyzing ad performance and optimizing advertising campaigns.</p>
 <p>This consent is effective as of June 8, 2026 and shall remain in effect
 until revoked in writing.</p>
 <p>Contact: kangdu927@gmail.com</p>
