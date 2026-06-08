@@ -9,6 +9,7 @@ import logging
 from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
 
@@ -159,6 +160,26 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_consent():
+    """Amazon Ads API privacy consent page — publicly accessible"""
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Privacy Consent — Amazon Ads API</title></head>
+<body>
+<h1>Privacy Consent for Amazon Ads API</h1>
+<p>I, acting on behalf of Megapower, hereby consent to Amazon processing
+our advertising data through the Amazon Ads API for the purpose of
+analyzing ad performance and optimizing advertising campaigns.</p>
+<p>This consent is effective as of June 8, 2026 and shall remain in effect
+until revoked in writing.</p>
+<p>Contact: kang@megapower.com</p>
+</body>
+</html>
+"""
 
 
 @app.post("/query", response_model=QueryResponse)
