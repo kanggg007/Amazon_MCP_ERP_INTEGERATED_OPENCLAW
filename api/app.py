@@ -176,7 +176,7 @@ our advertising data through the Amazon Ads API for the purpose of
 analyzing ad performance and optimizing advertising campaigns.</p>
 <p>This consent is effective as of June 8, 2026 and shall remain in effect
 until revoked in writing.</p>
-<p>Contact: kangdu927@gmail.com</p>
+<p>Contact: TeaFruitix@outlook.com</p>
 </body>
 </html>
 """
