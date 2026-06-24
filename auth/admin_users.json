@@ -3,29 +3,22 @@
     "username": "Master A",
     "role": "master_admin",
     "is_active": true,
-    "created_by": "system"
+    "created_by": "system",
+    "password_hash": "3bace9faa686f20417e89a4b3b1ff691e900b13957452f0e0544e65b26144ac5"
   },
   "master_b": {
     "username": "Master B",
     "role": "write_admin",
     "is_active": true,
-    "created_by": "master"
+    "created_by": "master",
+    "password_hash": "56f3f89780dcd651b81c06dcd5d4983c5f0e5834100a05f0225c62f77d2fef22"
   },
   "master_c": {
     "username": "Master C",
     "role": "read_admin",
     "is_active": true,
-    "created_by": "master"
-  },
-  "sub_cuczuus_1": {
-    "username": "CUCZUUS Reader 1",
-    "role": "sub_admin",
-    "is_active": true,
     "created_by": "master",
-    "assigned_stores": [
-      "CUCZUUS"
-    ],
-    "write_allowed": false
+    "password_hash": "e8b563ab192cfa3df107c31670acb8e3cce1618ebd538df6ed32a3765e8a84d8"
   },
   "sub_cuczuus_2": {
     "username": "CUCZUUS Reader 2",
@@ -35,7 +28,8 @@
     "assigned_stores": [
       "CUCZUUS"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "eccb7db2c7611f22f3a18ec25ab5a8ee2ad2456e4b28deebe380902e7d9f87f1"
   },
   "sub_cuczuus_3": {
     "username": "CUCZUUS Reader 3",
@@ -45,7 +39,8 @@
     "assigned_stores": [
       "CUCZUUS"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "3a81c00bd8b33d7a9ee43a79a72d469417ea53bce1a3aff35f9af31b8afbebba"
   },
   "sub_cuczuus_4": {
     "username": "CUCZUUS Reader 4",
@@ -55,7 +50,8 @@
     "assigned_stores": [
       "CUCZUUS"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "6775b7d47ce7be4cee9c070b61508e139ba4b560a68428baf707960136ab2543"
   },
   "sub_cuczuus_5": {
     "username": "CUCZUUS Reader 5",
@@ -65,17 +61,8 @@
     "assigned_stores": [
       "CUCZUUS"
     ],
-    "write_allowed": false
-  },
-  "sub_booluu_1": {
-    "username": "BOOLUU Reader 1",
-    "role": "sub_admin",
-    "is_active": true,
-    "created_by": "master",
-    "assigned_stores": [
-      "BOOLUU"
-    ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "bf704bda244436cd101bd94009d1e418b04734b692b4dd9f72218308b6ffeda7"
   },
   "sub_booluu_2": {
     "username": "BOOLUU Reader 2",
@@ -85,7 +72,8 @@
     "assigned_stores": [
       "BOOLUU"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "061dea3388b90387ba9d65dca9c940b7faa57666721f3e7a4c76ab94594b3a18"
   },
   "sub_booluu_3": {
     "username": "BOOLUU Reader 3",
@@ -95,7 +83,8 @@
     "assigned_stores": [
       "BOOLUU"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "cad274f05493d97e487146ec9739498b1737f636d9e890bf799b99a3e5a2055f"
   },
   "sub_booluu_4": {
     "username": "BOOLUU Reader 4",
@@ -105,7 +94,8 @@
     "assigned_stores": [
       "BOOLUU"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "26bbf4315b4e6041e2362d34f46ba43d574944b4b6fb801044e522a4fdeecda2"
   },
   "sub_booluu_5": {
     "username": "BOOLUU Reader 5",
@@ -115,17 +105,8 @@
     "assigned_stores": [
       "BOOLUU"
     ],
-    "write_allowed": false
-  },
-  "sub_heliumx_1": {
-    "username": "Heliumx Reader 1",
-    "role": "sub_admin",
-    "is_active": true,
-    "created_by": "master",
-    "assigned_stores": [
-      "Heliumx"
-    ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "1283c0ff269a0b1b048734cfa63b5095e445927296b37be065f5f1786826ce34"
   },
   "sub_heliumx_2": {
     "username": "Heliumx Reader 2",
@@ -135,7 +116,8 @@
     "assigned_stores": [
       "Heliumx"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "43fc5dca5f73c671dabf78e872603da5f87965ec76f305bfa5c70a7472b28954"
   },
   "sub_heliumx_3": {
     "username": "Heliumx Reader 3",
@@ -145,7 +127,8 @@
     "assigned_stores": [
       "Heliumx"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "7e275840e1ec4ae1a1e09aa8f12c9081e24f0571dd182021439dd01f19ced24d"
   },
   "sub_heliumx_4": {
     "username": "Heliumx Reader 4",
@@ -155,7 +138,8 @@
     "assigned_stores": [
       "Heliumx"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "d31b07147036153bbcc9a6f73daad061991916a1f70597f3d3d3b5828e030bfb"
   },
   "sub_heliumx_5": {
     "username": "Heliumx Reader 5",
@@ -165,6 +149,40 @@
     "assigned_stores": [
       "Heliumx"
     ],
-    "write_allowed": false
+    "write_allowed": false,
+    "password_hash": "8375d4700829f6adc2357a34e1a07f9d55432acfcd2890d093670ce1f669721a"
+  },
+  "sub_cuczuus": {
+    "username": "CUCZUUS Reader 1",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "CUCZUUS"
+    ],
+    "write_allowed": false,
+    "password_hash": "eba1694df93d396a11c345253f8a758e17732403496c39ea1507dccd1596cb19"
+  },
+  "sub_booluu": {
+    "username": "BOOLUU Reader 1",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "BOOLUU"
+    ],
+    "write_allowed": false,
+    "password_hash": "ae272651131f93cfd293e5650dd186fe9fb0e184048c1bfd7b9653671fdab513"
+  },
+  "sub_heliumx": {
+    "username": "Heliumx Reader 1",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "Heliumx"
+    ],
+    "write_allowed": false,
+    "password_hash": "73296c56f0ecb606cc69f3b0bd1bf1a6a7307e85ac71b5861e62e1bdfca31daf"
   }
 }
