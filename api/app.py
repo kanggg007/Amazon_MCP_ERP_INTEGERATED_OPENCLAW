@@ -205,6 +205,42 @@ until revoked in writing.</p>
 """
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page():
+    """Login page with form."""
+    return """
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>Login</title>
+<style>
+body{font-family:Arial;display:flex;justify-content:center;align-items:center;height:100vh;background:#f5f5f5}
+.box{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);text-align:center}
+input{padding:10px;margin:8px;width:250px;border:1px solid #ddd;border-radius:4px}
+button{padding:10px 30px;background:#1890ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:16px}
+.result{margin-top:20px;padding:10px;background:#f0f0f0;border-radius:4px;text-align:left;font-size:13px}
+</style></head>
+<body>
+<div class="box">
+<h2>Amazon Ops Login</h2>
+<input id="uid" placeholder="User ID" value="sub_cuczuus_1">
+<button onclick="login()">Login</button>
+<div id="result" class="result" style="display:none"></div>
+</div>
+<script>
+async function login(){
+  const uid=document.getElementById('uid').value;
+  const res=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid})});
+  const data=await res.json();
+  const r=document.getElementById('result');
+  r.style.display='block';
+  r.innerHTML='<b>'+data.username+'</b><br>Role: '+data.role+'<br>Stores: '+data.stores.join(', ')+'<br>Write: '+data.write_allowed+'<br><br><small>Token: '+data.token.substring(0,20)+'...</small>';
+}
+</script>
+</body>
+</html>
+"""
+
+
 @app.post("/login")
 async def login(request: Request):
     """Login with user_id. Returns token + permissions."""
