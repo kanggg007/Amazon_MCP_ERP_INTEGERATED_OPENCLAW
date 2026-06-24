@@ -30,8 +30,10 @@ logger = logging.getLogger("amazon.auth.rbac")
 
 
 class AdminRole(str, Enum):
-    MASTER = "master_admin"
-    SUB = "sub_admin"
+    MASTER = "master_admin"       # Master-A: read+write+manage all
+    WRITE_ADMIN = "write_admin"    # Master-B: read+write all, no manage
+    READ_ADMIN = "read_admin"      # Master-C: read-only all, no write/manage
+    SUB = "sub_admin"              # Limited: assigned stores only
 
 
 class Permission(str, Enum):
@@ -44,14 +46,26 @@ class Permission(str, Enum):
 # Permission matrix
 ROLE_PERMISSIONS = {
     AdminRole.MASTER: {
-        Permission.READ: "all",           # Can read all stores
-        Permission.WRITE: "all",          # Can write all stores (with approval)
-        Permission.MANAGE_USERS: True,    # Can manage users
-        Permission.MANAGE_STORES: True,   # Can manage stores
+        Permission.READ: "all",
+        Permission.WRITE: "all",
+        Permission.MANAGE_USERS: True,
+        Permission.MANAGE_STORES: True,
+    },
+    AdminRole.WRITE_ADMIN: {
+        Permission.READ: "all",
+        Permission.WRITE: "all",
+        Permission.MANAGE_USERS: False,
+        Permission.MANAGE_STORES: False,
+    },
+    AdminRole.READ_ADMIN: {
+        Permission.READ: "all",
+        Permission.WRITE: "none",
+        Permission.MANAGE_USERS: "sub_only",  # Can manage Sub Admins only
+        Permission.MANAGE_STORES: False,
     },
     AdminRole.SUB: {
-        Permission.READ: "assigned",      # Can only read assigned stores
-        Permission.WRITE: "assigned",     # Can only write assigned stores
+        Permission.READ: "assigned",
+        Permission.WRITE: "assigned",
         Permission.MANAGE_USERS: False,
         Permission.MANAGE_STORES: False,
     },
@@ -64,6 +78,7 @@ class AdminUser(BaseModel):
     username: str
     role: AdminRole
     assigned_stores: List[str] = []  # For sub admins: which stores they can access
+    write_allowed: bool = True        # Sub admin: False = read-only
     is_active: bool = True
     created_at: str = ""
     created_by: str = ""
@@ -82,21 +97,38 @@ class RBACManager:
         self._load_defaults()
 
     def _load_defaults(self):
-        """Load default admin users (from env or config)."""
-        # Master admin is always created from env
-        import os
-        master_id = os.environ.get("MASTER_ADMIN_ID", "master")
-        master_name = os.environ.get("MASTER_ADMIN_NAME", "Master Admin")
-        self._users[master_id] = AdminUser(
-            user_id=master_id,
-            username=master_name,
-            role=AdminRole.MASTER,
-            assigned_stores=[],  # Master has access to ALL
-            is_active=True,
-            created_at=datetime.now(timezone.utc).isoformat(),
-            created_by="system",
-        )
-        logger.info("Master admin '%s' initialized", master_id)
+        """Load admin users from admin_users.json or fallback to env."""
+        import os, json as j
+        from pathlib import Path
+        
+        users_file = Path(__file__).parent / "admin_users.json"
+        if users_file.exists():
+            with open(users_file) as f:
+                users_data = j.load(f)
+            for uid, data in users_data.items():
+                if not data.get("is_active", True):
+                    continue
+                self._users[uid] = AdminUser(
+                    user_id=uid,
+                    username=data.get("username", uid),
+                    role=AdminRole(data.get("role", "sub_admin")),
+                    assigned_stores=data.get("assigned_stores", []),
+                    write_allowed=data.get("write_allowed", True),
+                    is_active=True,
+                    created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    created_by=data.get("created_by", "system"),
+                )
+            logger.info("Loaded %d users from admin_users.json", len(self._users))
+        else:
+            # Fallback: master admin from env
+            master_id = os.environ.get("MASTER_ADMIN_ID", "master")
+            self._users[master_id] = AdminUser(
+                user_id=master_id, username="Master Admin",
+                role=AdminRole.MASTER, assigned_stores=[], is_active=True,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                created_by="system",
+            )
+            logger.info("Master admin '%s' initialized from env", master_id)
 
     # ─── User Management (Master Admin Only) ───
 
@@ -158,23 +190,15 @@ class RBACManager:
     # ─── Permission Checks ───
 
     def check_read_access(self, user_id: str, store_id: str) -> bool:
-        """
-        Check if a user can READ data from a store.
-
-        Args:
-            user_id: User requesting access
-            store_id: Target store
-
-        Returns:
-            True if allowed
-        """
+        """Check if a user can READ data from a store."""
         user = self._users.get(user_id)
         if not user or not user.is_active:
             logger.warning("READ denied: user '%s' not found or inactive", user_id)
             return False
 
-        if user.role == AdminRole.MASTER:
-            return True  # Master can read everything
+        # Master, Write Admin, Read Admin → can read all stores
+        if user.role in (AdminRole.MASTER, AdminRole.WRITE_ADMIN, AdminRole.READ_ADMIN):
+            return True
 
         if user.role == AdminRole.SUB:
             return store_id in (user.assigned_stores or [])
@@ -182,33 +206,58 @@ class RBACManager:
         return False
 
     def check_write_access(self, user_id: str, store_id: str) -> bool:
-        """
-        Check if a user can WRITE to a store.
-        WRITE still requires Level 2 approval — this just checks scope.
-
-        Args:
-            user_id: User requesting write
-            store_id: Target store
-
-        Returns:
-            True if the user is allowed to propose writes for this store
-        """
+        """Check if a user can WRITE to a store. Read-only subs always denied."""
         user = self._users.get(user_id)
         if not user or not user.is_active:
             return False
 
-        if user.role == AdminRole.MASTER:
-            return True  # Master can propose writes to any store
+        if user.role == AdminRole.READ_ADMIN:
+            return False
+
+        if user.role in (AdminRole.MASTER, AdminRole.WRITE_ADMIN):
+            return True
 
         if user.role == AdminRole.SUB:
+            if not user.write_allowed:
+                return False  # Read-only sub admin
             return store_id in (user.assigned_stores or [])
 
         return False
 
-    def check_manage_users(self, user_id: str) -> bool:
-        """Check if a user can manage other users."""
+    def check_manage_users(self, user_id: str, target_role: AdminRole = None) -> bool:
+        """
+        Check if a user can manage other users.
+        Master-A: manage ALL users
+        Master-C: manage SUB_ADMIN users only
+        Master-B: no user management
+        """
         user = self._users.get(user_id)
-        return user is not None and user.role == AdminRole.MASTER
+        if not user:
+            return False
+        if user.role == AdminRole.MASTER:
+            return True  # Master-A: unrestricted
+        if user.role == AdminRole.READ_ADMIN:
+            # Master-C: can only manage Sub Admin users
+            if target_role is None or target_role == AdminRole.SUB:
+                return True
+            return False
+        return False  # Master-B and others: denied
+
+    def create_admin(self, user_id: str, username: str, role: AdminRole,
+                     created_by: str, assigned_stores: List[str] = None) -> AdminUser:
+        """Create any admin type (Master Admin only)."""
+        if user_id in self._users:
+            raise ValueError(f"User '{user_id}' already exists.")
+        creator = self._users.get(created_by)
+        if not creator or creator.role != AdminRole.MASTER:
+            raise PermissionError("Only Master Admin can create users.")
+        user = AdminUser(user_id=user_id, username=username, role=role,
+                         assigned_stores=assigned_stores or [], is_active=True,
+                         created_at=datetime.now(timezone.utc).isoformat(),
+                         created_by=created_by)
+        self._users[user_id] = user
+        logger.info("Admin '%s' (%s) created by '%s'", user_id, role.value, created_by)
+        return user
 
     def get_user_stores(self, user_id: str) -> List[str]:
         """Get all stores a user has access to."""

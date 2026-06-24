@@ -6,9 +6,12 @@ Includes RBAC: Master Admin and Sub Admin permission control.
 """
 
 import logging
+import hashlib
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session as DBSession
@@ -180,6 +183,54 @@ until revoked in writing.</p>
 </body>
 </html>
 """
+
+
+@app.get("/privacy/heliumx", response_class=HTMLResponse)
+async def privacy_heliumx():
+    """Heliumx — Amazon Ads API privacy consent page"""
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Privacy Consent — Amazon Ads API (Heliumx)</title></head>
+<body>
+<h1>Privacy Consent for Amazon Ads API — Heliumx</h1>
+<p>I, acting on behalf of Heliumx, hereby consent to Amazon processing
+our advertising data through the Amazon Ads API for the purpose of
+analyzing ad performance and optimizing advertising campaigns.</p>
+<p>This consent is effective as of June 22, 2026 and shall remain in effect
+until revoked in writing.</p>
+<p>Contact: TeaFruitix@outlook.com</p>
+</body>
+</html>
+"""
+
+
+@app.post("/login")
+async def login(request: Request):
+    """Login with user_id. Returns token + permissions."""
+    import json as j
+    users_file = Path(__file__).parent.parent / "auth" / "admin_users.json"
+    with open(users_file) as f:
+        users = j.load(f)
+    
+    body = await request.json()
+    user_id = body.get("user_id", "")
+    
+    user = users.get(user_id)
+    if not user or not user.get("is_active"):
+        raise HTTPException(401, "Invalid user")
+    
+    rbac = RBACManager()
+    token = hashlib.sha256(f"{user_id}:{datetime.utcnow()}".encode()).hexdigest()
+    
+    return {
+        "token": token,
+        "user_id": user_id,
+        "username": user["username"],
+        "role": user["role"],
+        "stores": user.get("assigned_stores", []) if user["role"] == "sub_admin" else ["CUCZUUS", "BOOLUU", "Heliumx"],
+        "write_allowed": user.get("write_allowed", user["role"] in ("master_admin", "write_admin")),
+    }
 
 
 @app.post("/query", response_model=QueryResponse)

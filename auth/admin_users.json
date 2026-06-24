@@ -1,0 +1,170 @@
+{
+  "master": {
+    "username": "Master A",
+    "role": "master_admin",
+    "is_active": true,
+    "created_by": "system"
+  },
+  "master_b": {
+    "username": "Master B",
+    "role": "write_admin",
+    "is_active": true,
+    "created_by": "master"
+  },
+  "master_c": {
+    "username": "Master C",
+    "role": "read_admin",
+    "is_active": true,
+    "created_by": "master"
+  },
+  "sub_cuczuus_1": {
+    "username": "CUCZUUS Reader 1",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "CUCZUUS"
+    ],
+    "write_allowed": false
+  },
+  "sub_cuczuus_2": {
+    "username": "CUCZUUS Reader 2",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "CUCZUUS"
+    ],
+    "write_allowed": false
+  },
+  "sub_cuczuus_3": {
+    "username": "CUCZUUS Reader 3",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "CUCZUUS"
+    ],
+    "write_allowed": false
+  },
+  "sub_cuczuus_4": {
+    "username": "CUCZUUS Reader 4",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "CUCZUUS"
+    ],
+    "write_allowed": false
+  },
+  "sub_cuczuus_5": {
+    "username": "CUCZUUS Reader 5",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "CUCZUUS"
+    ],
+    "write_allowed": false
+  },
+  "sub_booluu_1": {
+    "username": "BOOLUU Reader 1",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "BOOLUU"
+    ],
+    "write_allowed": false
+  },
+  "sub_booluu_2": {
+    "username": "BOOLUU Reader 2",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "BOOLUU"
+    ],
+    "write_allowed": false
+  },
+  "sub_booluu_3": {
+    "username": "BOOLUU Reader 3",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "BOOLUU"
+    ],
+    "write_allowed": false
+  },
+  "sub_booluu_4": {
+    "username": "BOOLUU Reader 4",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "BOOLUU"
+    ],
+    "write_allowed": false
+  },
+  "sub_booluu_5": {
+    "username": "BOOLUU Reader 5",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "BOOLUU"
+    ],
+    "write_allowed": false
+  },
+  "sub_heliumx_1": {
+    "username": "Heliumx Reader 1",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "Heliumx"
+    ],
+    "write_allowed": false
+  },
+  "sub_heliumx_2": {
+    "username": "Heliumx Reader 2",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "Heliumx"
+    ],
+    "write_allowed": false
+  },
+  "sub_heliumx_3": {
+    "username": "Heliumx Reader 3",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "Heliumx"
+    ],
+    "write_allowed": false
+  },
+  "sub_heliumx_4": {
+    "username": "Heliumx Reader 4",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "Heliumx"
+    ],
+    "write_allowed": false
+  },
+  "sub_heliumx_5": {
+    "username": "Heliumx Reader 5",
+    "role": "sub_admin",
+    "is_active": true,
+    "created_by": "master",
+    "assigned_stores": [
+      "Heliumx"
+    ],
+    "write_allowed": false
+  }
+}
