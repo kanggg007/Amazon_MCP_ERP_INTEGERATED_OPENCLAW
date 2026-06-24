@@ -211,30 +211,55 @@ async def login_page():
     return """
 <!DOCTYPE html>
 <html lang="zh">
-<head><meta charset="UTF-8"><title>Login</title>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Amazon Operations Platform</title>
 <style>
-body{font-family:Arial;display:flex;justify-content:center;align-items:center;height:100vh;background:#f5f5f5}
-.box{background:#fff;padding:40px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);text-align:center}
-input{padding:10px;margin:8px;width:250px;border:1px solid #ddd;border-radius:4px}
-button{padding:10px 30px;background:#1890ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:16px}
-.result{margin-top:20px;padding:10px;background:#f0f0f0;border-radius:4px;text-align:left;font-size:13px}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;display:flex;justify-content:center;align-items:center}
+.card{background:#fff;padding:48px 40px;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.3);width:400px;text-align:center}
+h1{font-size:24px;color:#1a1a2e;margin-bottom:8px}
+.sub{color:#888;font-size:14px;margin-bottom:32px}
+.input-group{margin-bottom:20px;text-align:left}
+.input-group label{display:block;font-size:13px;color:#555;margin-bottom:6px;font-weight:500}
+.input-group input{width:100%;padding:12px 16px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;transition:border-color .2s;outline:none}
+.input-group input:focus{border-color:#667eea}
+.btn{width:100%;padding:14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:opacity .2s}
+.btn:hover{opacity:.9}
+.result{margin-top:24px;padding:16px;background:#f8f9ff;border-radius:8px;text-align:left;font-size:13px;display:none;border:1px solid #e8ecff}
+.result .name{font-size:16px;font-weight:600;color:#1a1a2e}
+.result .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-right:4px}
+.badge-admin{background:#ffd700;color:#333}
+.badge-read{background:#e0e0e0;color:#555}
+.badge-write{background:#c8e6c9;color:#2e7d32}
+.badge-store{background:#e3f2fd;color:#1565c0}
+.token{font-family:monospace;font-size:11px;color:#aaa;margin-top:8px;word-break:break-all}
 </style></head>
 <body>
-<div class="box">
-<h2>Amazon Ops Login</h2>
-<input id="uid" placeholder="User ID" value="sub_cuczuus_1">
-<button onclick="login()">Login</button>
-<div id="result" class="result" style="display:none"></div>
+<div class="card">
+<h1>📊 Amazon Operations</h1>
+<p class="sub">Enter your User ID to access</p>
+<div class="input-group">
+<label>User ID</label>
+<input id="uid" placeholder="sub_cuczuus" autofocus>
+</div>
+<button class="btn" onclick="login()">Sign In</button>
+<div id="result" class="result"></div>
 </div>
 <script>
 async function login(){
   const uid=document.getElementById('uid').value;
+  if(!uid)return;
   const res=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:uid})});
-  const data=await res.json();
+  if(!res.ok){document.getElementById('result').style.display='block';document.getElementById('result').innerHTML='<span style=color:red>❌ Invalid User ID</span>';return}
+  const d=await res.json();
   const r=document.getElementById('result');
   r.style.display='block';
-  r.innerHTML='<b>'+data.username+'</b><br>Role: '+data.role+'<br>Stores: '+data.stores.join(', ')+'<br>Write: '+data.write_allowed+'<br><br><small>Token: '+data.token.substring(0,20)+'...</small>';
+  const roleBadge=d.role==='master_admin'?'<span class="badge badge-admin">Admin</span>':d.role==='read_admin'?'<span class="badge badge-read">Read Only</span>':'<span class="badge badge-read">Reader</span>';
+  const writeBadge=d.write_allowed?'<span class="badge badge-write">Write</span>':'';
+  const stores=d.stores.map(s=>'<span class="badge badge-store">'+s+'</span>').join(' ');
+  r.innerHTML='<div class="name">👤 '+d.username+' '+roleBadge+' '+writeBadge+'</div><div style="margin-top:8px">'+stores+'</div><div class="token">Token: '+d.token.substring(0,32)+'...</div>';
 }
+document.getElementById('uid').addEventListener('keydown',function(e){if(e.key==='Enter')login()});
 </script>
 </body>
 </html>
