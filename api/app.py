@@ -167,14 +167,20 @@ async def health():
 
 @app.get("/admin/data-status")
 async def data_status():
-    """Check what data is available in data_lake."""
-    from pathlib import Path as _Path
-    base = _Path(__file__).parent.parent / "data_lake" / "ads_daily"
-    if not base.exists():
-        return {"status": "empty", "files": []}
-    files = sorted([f.name for f in base.glob("*.json")])
-    dates = set(f.rsplit("_", 1)[-1].replace(".json","") for f in files)
-    return {"status": "ok", "count": len(files), "dates": sorted(dates), "files": files[-20:]}
+    """Check what data is available in PostgreSQL."""
+    try:
+        import psycopg2, os as _os, json as _json
+        dsn = _os.environ.get("DATABASE_URL", "")
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor()
+        cur.execute("SELECT store, market, report_type, date, cost, sales, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 20")
+        rows = []
+        for r in cur.fetchall():
+            rows.append({"store":r[0],"market":r[1],"type":r[2],"date":str(r[3]),"cost":float(r[4]),"sales":float(r[5]),"pulled":str(r[6])})
+        conn.close()
+        return {"status":"ok","count":len(rows),"rows":rows}
+    except Exception as e:
+        return {"status":"error","message":str(e)[:200]}
 
 
 @app.post("/admin/run-ingestion")
