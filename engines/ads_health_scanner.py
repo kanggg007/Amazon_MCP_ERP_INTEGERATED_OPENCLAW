@@ -31,7 +31,7 @@ PROFILES = {
     "Heliumx": {"US": ("04", "1416052288010129"), "CA": ("04", "3865316191299322")},
 }
 
-def pull_campaign_report(cid, csec, ref, pid, start, end):
+def pull_campaign_report(cid, csec, ref, pid, start, end, retries=3):
     r = httpx.post("https://api.amazon.com/auth/o2/token",
                    json={"grant_type": "refresh_token", "client_id": cid,
                          "client_secret": csec, "refresh_token": ref}, timeout=10)
@@ -40,18 +40,26 @@ def pull_campaign_report(cid, csec, ref, pid, start, end):
          "Amazon-Advertising-API-Scope": pid, "Content-Type": "application/json"}
     body = {"startDate": start, "endDate": end,
             "configuration": {"adProduct": "SPONSORED_PRODUCTS", "groupBy": ["campaign"],
-            "columns": ["cost", "campaignName", "campaignStatus", "sales30d", "clicks",
-            "impressions", "campaignBudget"],
+            "columns": ["cost", "campaignName", "campaignStatus", "campaignBudgetAmount","sales1d", "clicks",
+            "impressions"],
             "reportTypeId": "spCampaigns", "timeUnit": "SUMMARY", "format": "GZIP_JSON"}}
     
-    rr = httpx.post("https://advertising-api.amazon.com/reporting/reports",
-                    headers=h, json=body, timeout=15)
-    if rr.status_code != 200:
-        return None, f"Report create failed: {rr.status_code}"
+    for attempt in range(retries):
+        rr = httpx.post("https://advertising-api.amazon.com/reporting/reports",
+                        headers=h, json=body, timeout=15)
+        if rr.status_code == 200:
+            break
+        if rr.status_code in (425, 429):
+            wait = 5 * (2 ** attempt)  # 5, 10, 20 sec backoff
+            time.sleep(wait)
+            continue
+        return None, f"Report create failed: {rr.status_code} — {rr.text[:200]}"
+    else:
+        return None, f"Report create failed after {retries} retries (rate limited)"
     
     rid = rr.json()["reportId"]
-    for i in range(25):
-        time.sleep(4)
+    for i in range(30):
+        time.sleep(5)
         rp = httpx.get(f"https://advertising-api.amazon.com/reporting/reports/{rid}",
                        headers=h, timeout=10)
         s = rp.json().get("status")
@@ -68,11 +76,12 @@ def pull_campaign_report(cid, csec, ref, pid, start, end):
 def scan(store, months_back=1):
     """Run health scan for a store. Returns flagged issues."""
     
-    from datetime import datetime
-    d = datetime.now()
-    # Start from 1st of current month, going back
-    start = f"{d.year}-{d.month:02d}-01"
-    end = f"{d.year}-{d.month:02d}-{min(d.day, 28):02d}"
+    from datetime import datetime, timedelta
+    d = datetime.now() - timedelta(days=1)  # Yesterday — Ads API needs ~12h to process
+    # Daily scan = yesterday's data
+    yesterday = d.strftime("%Y-%m-%d")
+    start = yesterday
+    end = yesterday
     
     issues = []
     store_total = {"cost": 0, "sales": 0, "campaigns": 0}
@@ -86,7 +95,7 @@ def scan(store, months_back=1):
             continue
         
         market_cost = sum(float(r.get("cost", 0)) for r in rows if isinstance(r, dict))
-        market_sales = sum(float(r.get("sales30d", 0)) for r in rows if isinstance(r, dict))
+        market_sales = sum(float(r.get("sales1d", 0)) for r in rows if isinstance(r, dict))
         market_acos = (market_cost / market_sales * 100) if market_sales > 0 else 0
         
         store_total["cost"] += market_cost
@@ -98,7 +107,7 @@ def scan(store, months_back=1):
                 continue
             name = row.get("campaignName", "Unknown")
             cost = float(row.get("cost", 0))
-            sales = float(row.get("sales30d", 0))
+            sales = float(row.get("sales1d", 0))
             status = row.get("campaignStatus", "UNKNOWN")
             clicks = int(row.get("clicks", 0))
             acos = (cost / sales * 100) if sales > 0 else float("inf")
@@ -186,9 +195,13 @@ def print_scan(store, issues, totals):
             metric = item.get("metric", "")
             detail = item.get("detail", "")
             action = item.get("action", "")
-            print(f"     [{mkt}] {camp}")
-            print(f"     {metric}: {detail}")
-            print(f"     → {action}")
+            msg = item.get("message", "")
+            if sev == "error":
+                print(f"     [{mkt}] {msg}")
+            else:
+                print(f"     [{mkt}] {camp}")
+                print(f"     {metric}: {detail}")
+                print(f"     → {action}")
     
     print(f"\n  📊 Summary:")
     red_count = len(by_sev.get("red", []))

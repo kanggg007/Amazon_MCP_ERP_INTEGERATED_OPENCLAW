@@ -679,6 +679,95 @@ class ProductStoreMapping(Base):
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class SearchTermHistory(Base):
+    """
+    Historical search term tracking — every search query that got clicks.
+    Updated every 7 days via attribute harvesting.
+    """
+    __tablename__ = "search_terms_history"
+    __table_args__ = (
+        UniqueConstraint("store_id", "marketplace_id", "search_term", "campaign_id", "date"),
+        Index("idx_sth_store_date", "store_id", "date"),
+        Index("idx_sth_term", "search_term"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32), default="ATVPDKIKX0DER")
+    campaign_id = Column(String(64), nullable=False)
+    campaign_name = Column(String(255))
+    ad_group_id = Column(String(64))
+    search_term = Column(String(500), nullable=False)
+    root_keyword = Column(String(300))    # extracted attribute
+    modifier = Column(String(200))         # size/color/variant
+    category = Column(String(64))          # mirror, aquarium, fitness, etc.
+    match_type = Column(String(32))
+    campaign_type = Column(String(16))     # auto, manual
+    date = Column(Date, nullable=False)
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    spend = Column(Numeric(12, 2), default=0)
+    sales = Column(Numeric(12, 2), default=0)
+    orders = Column(Integer, default=0)
+    ctr = Column(Numeric(8, 4))
+    cvr = Column(Numeric(8, 4))
+    acos = Column(Numeric(8, 4))
+    roas = Column(Numeric(8, 2))
+    cpc = Column(Numeric(8, 2))
+    intent_signal = Column(String(32))     # purchase, research, browse, comparison
+    is_negative_candidate = Column(Boolean, default=False)
+    raw_data = Column(JSONB)
+    harvested_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttributeWeight(Base):
+    """
+    Derived attribute weights — recalculated every 14 days.
+    These weights drive the composite scoring engine.
+    """
+    __tablename__ = "attribute_weights"
+    __table_args__ = (
+        UniqueConstraint("store_id", "dimension", "derived_at"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    dimension = Column(String(32), nullable=False)  # efficiency, volume, conversion, momentum, intent, discovery
+    weight = Column(Numeric(8, 4), nullable=False)  # 0-1, sum of all dimensions = 1
+    baseline_value = Column(Numeric(12, 4))          # reference value for this dimension
+    confidence = Column(Numeric(8, 4))               # how reliable this weight is (0-1)
+    derived_at = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class KeywordBidLog(Base):
+    """
+    Audit trail for all bid changes (human-approved only).
+    Records what was changed, by how much, and the rationale.
+    """
+    __tablename__ = "keyword_bid_log"
+    __table_args__ = (
+        Index("idx_kbl_store_date", "store_id", "changed_at"),
+    )
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    store_id = Column(String(64), ForeignKey("stores.store_id"), nullable=False)
+    marketplace_id = Column(String(32))
+    campaign_id = Column(String(64))
+    keyword_id = Column(String(64))          # Amazon keywordId
+    keyword_text = Column(String(500))
+    match_type = Column(String(32))
+    old_bid = Column(Numeric(8, 2))
+    new_bid = Column(Numeric(8, 2))
+    change_pct = Column(Numeric(8, 4))       # e.g., 0.15 = +15%
+    action = Column(String(32))              # increase, decrease, pause, negative_added
+    rationale = Column(Text)
+    metrics_snapshot = Column(JSONB)         # ACoS, RoAS, CVR at time of change
+    approved_by = Column(String(64), default="Kang")
+    status = Column(String(16), default="pending")  # pending, applied, reverted
+    changed_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    applied_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 def create_all_tables():
     """Create all tables (for development/testing)."""
     Base.metadata.create_all(bind=get_engine())

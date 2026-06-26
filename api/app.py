@@ -1108,6 +1108,61 @@ async def catalog_bulk_import(data: dict, user_id: str = "master"):
     engine = ProductCatalogEngine()
     result = engine.bulk_import(data.get("products", []))
     return {"status": "ok", **result}
+
+
+async def _run_scheduler():
+    """Background scheduler — checks every 60s, runs jobs at scheduled times."""
+    import asyncio, subprocess, sys as _sys
+    from datetime import datetime as _dt
+    from pathlib import Path as _Path
+    
+    BASE2 = _Path(__file__).parent.parent if __file__.endswith('api/app.py') else _Path.cwd()
+    SCHEDULE = [
+        (8, 0, None, "engines/ads_health_scanner.py", "Ads Health"),
+        (8, 0, None, "engines/inbox_monitor.py", "Inbox"),
+        (8, 0, 1, "engines/discrepancy_scanner.py", "Discrepancy Mon"),
+        (8, 0, 5, "engines/discrepancy_scanner.py", "Discrepancy Fri"),
+        (14, 0, None, "engines/ads_ingestion.py", "Ads Ingestion"),
+        (17, 0, None, "daily_revenue_report.py", "Revenue Report"),
+    ]
+    
+    logger.info("Scheduler started with %d jobs", len(SCHEDULE))
+    last_run = {}
+    
+    while True:
+        try:
+            now = _dt.now()
+            for hour, minute, dow, script, name in SCHEDULE:
+                key = (hour, minute, dow or 0, script)
+                if now.hour == hour and now.minute == minute:
+                    if dow is not None and now.isoweekday() != dow:
+                        continue
+                    if key in last_run and (now - last_run[key]).seconds < 90:
+                        continue
+                    last_run[key] = now
+                    path = BASE2 / script
+                    if path.exists():
+                        try:
+                            proc = await asyncio.create_subprocess_exec(
+                                _sys.executable, str(path),
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE
+                            )
+                            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
+                            if proc.returncode == 0:
+                                logger.info("[%s] OK", name)
+                            else:
+                                logger.error("[%s] FAIL: %s", name, stderr.decode()[:300])
+                        except asyncio.TimeoutError:
+                            logger.warning("[%s] TIMEOUT after 30min", name)
+                        except Exception as e:
+                            logger.error("[%s] ERROR: %s", name, e)
+            await asyncio.sleep(60)
+        except Exception as e:
+            logger.error("Scheduler loop error: %s", e)
+            await asyncio.sleep(60)
+
+
 async def startup():
     try:
         from auth import get_store_registry
@@ -1116,6 +1171,10 @@ async def startup():
         logger.info("API started. Stores: %s | Users: %s",
                      list(registry.active_stores.keys()) if registry.active_stores else "none",
                      [u.user_id for u in rbac.list_users()])
+        
+        # Start background scheduler for cron jobs
+        import asyncio as _asyncio
+        _asyncio.create_task(_run_scheduler())
     except Exception as e:
         logger.warning("Startup with limited config: %s", e)
 

@@ -280,3 +280,9 @@ class RBACManager:
     def list_users(self) -> List[AdminUser]:
         """List all users."""
         return list(self._users.values())
+
+
+# Ads write permission
+def can_manage_ads(user_id):
+    """Only master + master_b can manage ads (pause, bid, budget)"""
+    return get_perm(user_id, "ads_write")
