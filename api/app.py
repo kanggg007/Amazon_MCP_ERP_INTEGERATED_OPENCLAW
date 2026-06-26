@@ -165,6 +165,26 @@ async def health():
     return {"status": "ok", "version": "1.0.0"}
 
 
+@app.get("/test/deepseek")
+async def test_deepseek():
+    """Test DeepSeek API connectivity."""
+    import os as _os, httpx as _httpx
+    key = _os.environ.get("DEEPSEEK_API_KEY", "")
+    if not key:
+        return {"status": "error", "message": "DEEPSEEK_API_KEY not set"}
+    try:
+        r = _httpx.post("https://api.deepseek.com/v1/chat/completions",
+            headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
+            json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 5},
+            timeout=15)
+        if r.status_code == 200:
+            msg = r.json()["choices"][0]["message"]["content"]
+            return {"status": "ok", "reply": msg}
+        return {"status": "error", "http": r.status_code, "detail": r.text[:200]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_consent():
     """Amazon Ads API privacy consent page — publicly accessible"""
