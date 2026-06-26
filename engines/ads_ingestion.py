@@ -26,6 +26,22 @@ REPORTS = {
         "reportTypeId": "spCampaigns", "groupBy": ["campaign"],
         "columns": ["cost","campaignName","campaignStatus","sales1d","clicks","impressions","campaignBudgetAmount","campaignBiddingStrategy"]
     },
+    "sp_search_terms": {
+        "reportTypeId": "spSearchTerm", "groupBy": ["searchTerm"],
+        "columns": ["searchTerm","keyword","matchType","cost","clicks","impressions","sales1d","campaignName"]
+    },
+    "sp_targeting": {
+        "reportTypeId": "spTargeting", "groupBy": ["targeting"],
+        "columns": ["keyword","matchType","cost","clicks","impressions","sales1d","campaignName"]
+    },
+    "sp_advertised_product": {
+        "reportTypeId": "spAdvertisedProduct", "groupBy": ["advertiser"],
+        "columns": ["advertisedAsin","advertisedSku","cost","clicks","impressions","sales1d"]
+    },
+    "sp_purchased_product": {
+        "reportTypeId": "spPurchasedProduct", "groupBy": ["asin"],
+        "columns": ["purchasedAsin","advertisedAsin","advertisedSku","sales1d","sales7d","sales30d","purchases1d","purchases7d","purchases30d","campaignName"]
+    },
 }
 
 REGION_HOSTS = {"NA": "advertising-api.amazon.com", "FE": "advertising-api-fe.amazon.com", "EU": "advertising-api-eu.amazon.com"}
