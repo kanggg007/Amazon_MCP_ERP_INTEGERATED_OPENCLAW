@@ -1110,6 +1110,50 @@ async def catalog_bulk_import(data: dict, user_id: str = "master"):
     return {"status": "ok", **result}
 
 
+@app.post("/admin/upload-ratecard")
+async def upload_ratecard(data: dict, user_id: str = "master"):
+    """Upload FBA rate card — stores as JSON in DB."""
+    from auth import require_admin
+    require_admin(user_id, "write")
+    
+    rate_data = data.get("rates", {})
+    market = data.get("market", "")
+    
+    if not market or not rate_data:
+        raise HTTPException(400, "market and rates required")
+    
+    try:
+        from db.connection import get_db
+        from sqlalchemy import text
+        db = next(get_db())
+        db.execute(text("""
+            INSERT INTO rate_cards (market, data, updated_at)
+            VALUES (:market, :data, NOW())
+            ON CONFLICT (market) DO UPDATE SET data = :data, updated_at = NOW()
+        """), {"market": market, "data": json.dumps(rate_data)})
+        db.commit()
+        return {"status": "ok", "market": market, "tiers": len(rate_data)}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/admin/ratecard/{market}")
+async def get_ratecard(market: str):
+    """Get FBA rate card for a market."""
+    try:
+        from db.connection import get_db
+        from sqlalchemy import text
+        db = next(get_db())
+        result = db.execute(text("SELECT data, updated_at FROM rate_cards WHERE market = :market"), {"market": market}).fetchone()
+        if not result:
+            raise HTTPException(404, f"No rate card for {market}")
+        return {"market": market, "data": result[0], "updated": str(result[1])}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 async def _run_scheduler():
     """Background scheduler — checks every 60s, runs jobs at scheduled times."""
     import asyncio, subprocess, sys as _sys

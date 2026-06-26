@@ -1,0 +1,27 @@
+{
+  "description": "Logistics configuration — sea freight and currency rates",
+  "sea_freight": {
+    "US": {"mode": "kg", "rate": 5.0, "currency": "CNY", "description": "¥5 per kg"},
+    "CA": {"mode": "cbm", "rate": 1200.0, "currency": "CNY", "description": "¥1200 per CBM"},
+    "AU": {"mode": "cbm", "rate": 1200.0, "currency": "CNY", "description": "¥1200 per CBM"},
+    "DE": {"mode": "cbm", "rate": 1500.0, "currency": "CNY", "description": "¥1500 per CBM"}
+  },
+  "fx_rates": {
+    "USD": 0.1477,
+    "CAD": 0.2059,
+    "AUD": 0.2102,
+    "EUR": 0.1281,
+    "JPY": 16.58,
+    "source": "Sina Finance",
+    "updated": "2026-06-10"
+  },
+  "returns": {
+    "deduction_rate": 0.15,
+    "description": "Returns deducted at return_count * avg_price * 0.85"
+  },
+  "vat": {
+    "DE": 0.1899,
+    "JP": 0.10,
+    "description": "VAT deducted from gross profit"
+  }
+}
