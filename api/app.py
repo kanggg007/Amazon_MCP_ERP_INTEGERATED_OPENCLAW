@@ -165,6 +165,38 @@ async def health():
     return {"status": "ok", "version": "1.0.0"}
 
 
+@app.post("/admin/run-ingestion")
+async def run_ingestion(user_id: str = "master"):
+    """Trigger ads ingestion now. Master only."""
+    from auth.rbac import RBACManager
+    rbac = RBACManager()
+    user = rbac.get_user(user_id)
+    if not user or user.role not in ("master_admin", "write_admin"):
+        raise HTTPException(403, "Master admin only")
+    
+    import asyncio, subprocess, sys as _sys
+    from pathlib import Path as _Path
+    
+    async def _run():
+        BASE3 = _Path(__file__).parent.parent
+        path = BASE3 / "engines" / "ads_ingestion.py"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                _sys.executable, str(path),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
+            if proc.returncode == 0:
+                logger.info("Manual ingestion OK: %s", stdout.decode()[:500])
+            else:
+                logger.error("Manual ingestion FAIL: %s", stderr.decode()[:500])
+        except Exception as e:
+            logger.error("Manual ingestion ERROR: %s", e)
+    
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Ingestion running — check logs in 20-30 min"}
+
+
 @app.get("/test/deepseek")
 async def test_deepseek():
     """Test DeepSeek API connectivity."""
