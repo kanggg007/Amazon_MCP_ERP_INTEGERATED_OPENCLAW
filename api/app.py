@@ -185,19 +185,19 @@ async def data_status():
 
 @app.post("/admin/run-ingestion")
 async def run_ingestion(user_id: str = "master"):
-    """Trigger async parallel ingestion. Master only."""
+    """Trigger quick sync ingestion."""
     from auth.rbac import RBACManager
     rbac = RBACManager()
     user = rbac.get_user(user_id)
     if not user or user.role not in ("master_admin", "write_admin"):
         raise HTTPException(403, "Master admin only")
     
-    import asyncio, subprocess, sys as _sys
+    import asyncio, sys as _sys
     from pathlib import Path as _Path
     
     async def _run():
         BASE3 = _Path(__file__).parent.parent
-        path = BASE3 / "engines" / "ads_ingestion.py"
+        path = BASE3 / "engines" / "ads_quick_ingest.py"
         try:
             t0 = asyncio.get_event_loop().time()
             proc = await asyncio.create_subprocess_exec(
@@ -206,14 +206,15 @@ async def run_ingestion(user_id: str = "master"):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
             t1 = asyncio.get_event_loop().time()
-            logger.info("Ingestion OK (%.0fs): %s", t1-t0, stdout.decode()[:1000])
-        except asyncio.TimeoutError:
-            logger.error("Ingestion TIMEOUT after 30min")
+            if proc.returncode == 0:
+                logger.info("Quick ingest OK (%.0fs): %s", t1-t0, stdout.decode()[:500])
+            else:
+                logger.error("Quick ingest FAIL: %s", stderr.decode()[:500])
         except Exception as e:
-            logger.error("Ingestion ERROR: %s", e)
+            logger.error("Quick ingest ERROR: %s", e)
     
     asyncio.create_task(_run())
-    return {"status": "started", "message": "Async parallel ingestion running — ~10 min for 65 reports"}
+    return {"status": "started", "message": "Quick sync ingestion running — 13 profiles, ~10-20 min"}
 
 
 @app.get("/test/deepseek")
