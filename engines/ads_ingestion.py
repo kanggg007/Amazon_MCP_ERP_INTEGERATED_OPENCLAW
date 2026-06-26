@@ -9,9 +9,14 @@ BASE = Path(__file__).parent.parent
 DSN = os.environ.get("DATABASE_URL", "postgresql://postgres:ZTHtVHerPtatmfNeCufdSaqieNjmfxmW@acela.proxy.rlwy.net:58049/railway?sslmode=require&connect_timeout=20")
 
 PROFILES = {
-    "CUCZUUS": {"US": ("02","3465892858543553"), "CA": ("02","3474360124295876")},
-    "BOOLUU":  {"US": ("03","2902488181372396"), "CA": ("03","1000058889542591")},
-    "Heliumx": {"US": ("04","1416052288010129"), "CA": ("04","3865316191299322")},
+    # NA region (advertising-api.amazon.com)
+    "CUCZUUS": {"US": ("02","3465892858543553","na"), "CA": ("02","3474360124295876","na")},
+    "BOOLUU":  {"US": ("03","2902488181372396","na"), "CA": ("03","1000058889542591","na")},
+    "Heliumx": {"US": ("04","1416052288010129","na"), "CA": ("04","3865316191299322","na")},
+    # FE region (advertising-api-fe.amazon.com)
+    "CUCZUUS_FE": {"AU": ("02","3457387109813217","fe"), "JP": ("02","1336746761611490","fe")},
+    "BOOLUU_FE":  {"AU": ("03","671129043949754","fe"), "JP": ("03","1702417705815456","fe")},
+    "Heliumx_FE": {"AU": ("04","422659196126799","fe")},
 }
 
 REPORTS = {
@@ -42,8 +47,9 @@ def get_ads_creds(store):
             os.environ[f"STORE_{store}_ADS_CLIENT_SECRET"],
             os.environ[f"STORE_{store}_ADS_REFRESH_TOKEN"])
 
-def pull_and_store(store, market, store_num, pid, rpt_name, rpt_config, date):
+def pull_and_store(store, market, store_num, pid, region, rpt_name, rpt_config, date):
     cid, csec, ref = get_ads_creds(store_num)
+    api_host = "advertising-api-fe.amazon.com" if region == "fe" else "advertising-api.amazon.com"
     for a in range(3):
         r = httpx.post("https://api.amazon.com/auth/o2/token",
             json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref}, timeout=10)
@@ -56,7 +62,7 @@ def pull_and_store(store, market, store_num, pid, rpt_name, rpt_config, date):
     body = {"startDate":date,"endDate":date,"configuration":{"adProduct":"SPONSORED_PRODUCTS","groupBy":rpt_config["groupBy"],"columns":rpt_config["columns"],"reportTypeId":rpt_config["reportTypeId"],"timeUnit":"SUMMARY","format":"GZIP_JSON"}}
     
     for a in range(3):
-        rr = httpx.post("https://advertising-api.amazon.com/reporting/reports", headers=h, json=body, timeout=15)
+        rr = httpx.post(f"https://{api_host}/reporting/reports", headers=h, json=body, timeout=15)
         if rr.status_code == 200: break
         if rr.status_code in (425,429): time.sleep(15*(2**a)); continue
         return f"Create failed: {rr.status_code}"
@@ -65,7 +71,7 @@ def pull_and_store(store, market, store_num, pid, rpt_name, rpt_config, date):
     rid = rr.json()["reportId"]
     for i in range(60):
         time.sleep(10)
-        rp = httpx.get(f"https://advertising-api.amazon.com/reporting/reports/{rid}", headers=h, timeout=10)
+        rp = httpx.get(f"https://{api_host}/reporting/reports/{rid}", headers=h, timeout=10)
         s = rp.json()["status"]
         if s == "COMPLETED":
             raw = gzip.decompress(httpx.get(rp.json()["url"], timeout=30).content).decode()
@@ -91,11 +97,12 @@ if __name__ == "__main__":
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Ads Ingestion v2 (PostgreSQL) — {yesterday}")
     for store, markets in PROFILES.items():
-        for market, (snum, pid) in markets.items():
+        base_store = store.replace("_FE","")
+        for market, (snum, pid, region) in markets.items():
             for rname, rcfg in REPORTS.items():
                 try:
-                    result = pull_and_store(store, market, snum, pid, rname, rcfg, yesterday)
-                    print(f"  {store}/{market}/{rname}: {result}")
+                    result = pull_and_store(base_store, market, snum, pid, region, rname, rcfg, yesterday)
+                    print(f"  {base_store}/{market}/{rname}: {result}")
                 except Exception as e:
                     print(f"  {store}/{market}/{rname}: ERROR — {e}")
                 time.sleep(5)
