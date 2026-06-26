@@ -1308,7 +1308,7 @@ async def _run_scheduler():
                             )
                             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
                             if proc.returncode == 0:
-                                logger.info("[%s] OK", name)
+                                logger.info("[%s] OK: %s", name, stdout.decode()[:300])
                             else:
                                 logger.error("[%s] FAIL: %s", name, stderr.decode()[:300])
                         except asyncio.TimeoutError:
