@@ -79,6 +79,8 @@ class AdminUser(BaseModel):
     role: AdminRole
     assigned_stores: List[str] = []  # For sub admins: which stores they can access
     write_allowed: bool = True        # Sub admin: False = read-only
+    listing_write: bool = False       # Sub admin: can create/edit ASIN listings
+    store: str = ""                   # Primary store for sub admin (e.g. "CUCZUUS")
     is_active: bool = True
     created_at: str = ""
     created_by: str = ""
@@ -114,6 +116,8 @@ class RBACManager:
                     role=AdminRole(data.get("role", "sub_admin")),
                     assigned_stores=data.get("assigned_stores", []),
                     write_allowed=data.get("write_allowed", True),
+                    listing_write=data.get("listing_write", False),
+                    store=data.get("store", ""),
                     is_active=True,
                     created_at=data.get("created_at", datetime.now(timezone.utc).isoformat()),
                     created_by=data.get("created_by", "system"),

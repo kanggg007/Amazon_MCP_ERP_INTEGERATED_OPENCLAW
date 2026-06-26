@@ -1132,10 +1132,14 @@ async def catalog_bulk_import(data: dict, user_id: str = "master"):
 
 @app.post("/listings/create")
 async def create_listing(data: dict, user_id: str = "master"):
-    """Create or update an Amazon product listing."""
-    from auth.rbac import can_manage_ads
-    if not can_manage_ads(user_id):
-        raise HTTPException(403, "Master admin only")
+    """Create or update an Amazon product listing. Master + listing_write sub admins."""
+    from auth.rbac import RBACManager
+    rbac = RBACManager()
+    user = rbac.get_user(user_id)
+    if not user:
+        raise HTTPException(403, "Unknown user")
+    if user.role not in ("master_admin", "write_admin") and not user.listing_write:
+        raise HTTPException(403, "No listing write permission")
     
     store = data.get("store", "02")
     sku = data.get("sku")
@@ -1143,6 +1147,10 @@ async def create_listing(data: dict, user_id: str = "master"):
     
     if not sku or not listing_data:
         raise HTTPException(400, "sku and listing data required")
+    
+    # Sub admins: restrict to their assigned store
+    if user.store and user.store != store:
+        raise HTTPException(403, f"You can only manage {user.store} listings")
     
     try:
         from engines.listings_engine import ListingsEngine

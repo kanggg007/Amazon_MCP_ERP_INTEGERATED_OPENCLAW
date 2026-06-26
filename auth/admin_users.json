@@ -179,7 +179,8 @@
     ],
     "write_allowed": false,
     "password_hash": "eba1694df93d396a11c345253f8a758e17732403496c39ea1507dccd1596cb19",
-    "feishu_id": "ou_332c090a66e13d7792a648e3547779fe"
+    "feishu_id": "ou_332c090a66e13d7792a648e3547779fe",
+    "listing_write": true
   },
   "sub_booluu": {
     "username": "BOOLUU Reader 1",
@@ -191,7 +192,8 @@
     ],
     "write_allowed": false,
     "password_hash": "ae272651131f93cfd293e5650dd186fe9fb0e184048c1bfd7b9653671fdab513",
-    "feishu_id": ""
+    "feishu_id": "",
+    "listing_write": true
   },
   "sub_heliumx": {
     "username": "Heliumx Reader 1",
@@ -203,6 +205,7 @@
     ],
     "write_allowed": false,
     "password_hash": "73296c56f0ecb606cc69f3b0bd1bf1a6a7307e85ac71b5861e62e1bdfca31daf",
-    "feishu_id": ""
+    "feishu_id": "",
+    "listing_write": true
   }
 }
