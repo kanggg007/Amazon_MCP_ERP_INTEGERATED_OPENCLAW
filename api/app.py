@@ -165,6 +165,18 @@ async def health():
     return {"status": "ok", "version": "1.0.0"}
 
 
+@app.get("/admin/data-status")
+async def data_status():
+    """Check what data is available in data_lake."""
+    from pathlib import Path as _Path
+    base = _Path(__file__).parent.parent / "data_lake" / "ads_daily"
+    if not base.exists():
+        return {"status": "empty", "files": []}
+    files = sorted([f.name for f in base.glob("*.json")])
+    dates = set(f.rsplit("_", 1)[-1].replace(".json","") for f in files)
+    return {"status": "ok", "count": len(files), "dates": sorted(dates), "files": files[-20:]}
+
+
 @app.post("/admin/run-ingestion")
 async def run_ingestion(user_id: str = "master"):
     """Trigger ads ingestion now. Master only."""
