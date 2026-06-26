@@ -13,10 +13,9 @@ PROFILES = {
     "CUCZUUS": {"US": ("02","3465892858543553","na"), "CA": ("02","3474360124295876","na")},
     "BOOLUU":  {"US": ("03","2902488181372396","na"), "CA": ("03","1000058889542591","na")},
     "Heliumx": {"US": ("04","1416052288010129","na"), "CA": ("04","3865316191299322","na")},
-    # FE region (advertising-api-fe.amazon.com)
-    "CUCZUUS_FE": {"AU": ("02","3457387109813217","fe"), "JP": ("02","1336746761611490","fe")},
-    "BOOLUU_FE":  {"AU": ("03","671129043949754","fe"), "JP": ("03","1702417705815456","fe")},
-    "Heliumx_FE": {"AU": ("04","422659196126799","fe")},
+    # EU region (advertising-api-eu.amazon.com)
+    "CUCZUUS_EU": {"DE": ("02","2148844609196157","eu")},
+    "Heliumx_EU": {"DE": ("04","4304939656717104","eu")},
 }
 
 REPORTS = {
@@ -49,7 +48,7 @@ def get_ads_creds(store):
 
 def pull_and_store(store, market, store_num, pid, region, rpt_name, rpt_config, date):
     cid, csec, ref = get_ads_creds(store_num)
-    api_host = "advertising-api-fe.amazon.com" if region == "fe" else "advertising-api.amazon.com"
+    api_host = "advertising-api-fe.amazon.com" if region == "fe" else ("advertising-api-eu.amazon.com" if region == "eu" else "advertising-api.amazon.com")
     for a in range(3):
         r = httpx.post("https://api.amazon.com/auth/o2/token",
             json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref}, timeout=10)
@@ -97,7 +96,7 @@ if __name__ == "__main__":
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Ads Ingestion v2 (PostgreSQL) — {yesterday}")
     for store, markets in PROFILES.items():
-        base_store = store.replace("_FE","")
+        base_store = store.replace("_FE","").replace("_EU","")
         for market, (snum, pid, region) in markets.items():
             for rname, rcfg in REPORTS.items():
                 try:
