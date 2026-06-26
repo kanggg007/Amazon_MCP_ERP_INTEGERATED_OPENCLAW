@@ -131,9 +131,9 @@ async def main():
         
         for label, tasks in all_tasks:
             print(f"  {label}: pulling {len(tasks)} reports...", end=" ", flush=True)
-            results = await asyncio.gather(*tasks)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
             for r in results:
-                print(r)
+                print(str(r) if isinstance(r, str) else f"ERROR: {r}")
     
     t1 = time.time()
     print(f"\nDone in {t1-t0:.0f}s")
