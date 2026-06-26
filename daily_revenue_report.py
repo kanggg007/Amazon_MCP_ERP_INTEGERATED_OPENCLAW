@@ -84,3 +84,28 @@ if today in daily:
         print(f"  {o}")
 else:
     print(f"No orders found for {today}")
+
+# === Ads Summary (from PostgreSQL, ingested at 1 PM) ===
+print(f"\n{'='*60}")
+print("Ads Spend Summary (June 25 from ads_daily)")
+print(f"{'='*60}")
+try:
+    import psycopg2
+    dsn = os.environ.get("DATABASE_URL", "")
+    if dsn:
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor()
+        cur.execute("SELECT store, market, SUM(cost), SUM(sales) FROM ads_daily WHERE report_type='sp_campaigns' GROUP BY store, market ORDER BY store, market")
+        total_cost = 0; total_sales = 0
+        for r in cur.fetchall():
+            store, market, cost, sales = r
+            cost = float(cost); sales = float(sales)
+            acos = (cost/sales*100) if sales else 0
+            total_cost += cost; total_sales += sales
+            print(f"  {store:<15} {market:<5} Spend: \${cost:>8,.2f} | Sales: \${sales:>8,.2f} | ACOS: {acos:>5.0f}%")
+        total_acos = (total_cost/total_sales*100) if total_sales else 0
+        print(f"  {'─'*55}")
+        print(f"  {'TOTAL':<15} {'':5} Spend: \${total_cost:>8,.2f} | Sales: \${total_sales:>8,.2f} | ACOS: {total_acos:>5.0f}%")
+        conn.close()
+except Exception as e:
+    print(f"  [Ads data not available: {e}]")
