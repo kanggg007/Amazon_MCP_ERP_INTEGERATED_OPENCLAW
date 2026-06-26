@@ -1130,6 +1130,41 @@ async def catalog_bulk_import(data: dict, user_id: str = "master"):
     return {"status": "ok", **result}
 
 
+@app.post("/listings/create")
+async def create_listing(data: dict, user_id: str = "master"):
+    """Create or update an Amazon product listing."""
+    from auth.rbac import can_manage_ads
+    if not can_manage_ads(user_id):
+        raise HTTPException(403, "Master admin only")
+    
+    store = data.get("store", "02")
+    sku = data.get("sku")
+    listing_data = data.get("listing", {})
+    
+    if not sku or not listing_data:
+        raise HTTPException(400, "sku and listing data required")
+    
+    try:
+        from engines.listings_engine import ListingsEngine
+        engine = ListingsEngine()
+        result = engine.create_or_update(store, sku, listing_data)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/listings/{store}/{sku}")
+async def get_listing(store: str, sku: str):
+    """Get listing details."""
+    try:
+        from engines.listings_engine import ListingsEngine
+        engine = ListingsEngine()
+        result = engine.get_listing(store, sku)
+        return {"status": "ok", "listing": result}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
 @app.post("/admin/upload-ratecard")
 async def upload_ratecard(data: dict, user_id: str = "master"):
     """Upload FBA rate card — stores as JSON in DB."""
