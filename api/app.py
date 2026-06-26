@@ -195,26 +195,34 @@ async def run_ingestion(user_id: str = "master"):
     import asyncio, sys as _sys
     from pathlib import Path as _Path
     
-    async def _run():
-        BASE3 = _Path(__file__).parent.parent
-        path = BASE3 / "engines" / "ads_quick_ingest.py"
+    BASE3 = _Path(__file__).parent.parent
+    async def _exec(script):
+        path = BASE3 / script
         try:
-            t0 = asyncio.get_event_loop().time()
-            proc = await asyncio.create_subprocess_exec(
-                _sys.executable, str(path),
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
+            proc = await asyncio.create_subprocess_exec(_sys.executable, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
-            t1 = asyncio.get_event_loop().time()
-            if proc.returncode == 0:
-                logger.info("Quick ingest OK (%.0fs): %s", t1-t0, stdout.decode()[:500])
-            else:
-                logger.error("Quick ingest FAIL: %s", stderr.decode()[:500])
-        except Exception as e:
-            logger.error("Quick ingest ERROR: %s", e)
+            logger.info("[%s] %s", script, stdout.decode()[:500] if proc.returncode==0 else stderr.decode()[:500])
+        except Exception as e: logger.error("[%s] ERROR: %s", script, e)
     
-    asyncio.create_task(_run())
+    asyncio.create_task(_exec("engines/ads_quick_ingest.py"))
     return {"status": "started", "message": "Quick sync ingestion running — 13 profiles, ~10-20 min"}
+
+
+@app.post("/admin/run-revenue")
+async def run_revenue(user_id: str = "master"):
+    """Trigger daily revenue report."""
+    import asyncio, sys as _sys
+    from pathlib import Path as _Path
+    BASE3 = _Path(__file__).parent.parent
+    async def _exec():
+        path = BASE3 / "daily_revenue_report.py"
+        try:
+            proc = await asyncio.create_subprocess_exec(_sys.executable, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
+            logger.info("[Revenue] %s", stdout.decode()[:1000] if proc.returncode==0 else stderr.decode()[:500])
+        except Exception as e: logger.error("[Revenue] ERROR: %s", e)
+    asyncio.create_task(_exec())
+    return {"status": "started", "message": "Revenue report running"}
 
 
 @app.get("/test/deepseek")
