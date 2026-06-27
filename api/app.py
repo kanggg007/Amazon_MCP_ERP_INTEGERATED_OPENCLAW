@@ -1310,16 +1310,27 @@ async def _run_scheduler():
                     path = BASE2 / script
                     if path.exists():
                         try:
-                            proc = await asyncio.create_subprocess_exec(
-                                _sys.executable, str(path),
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE
-                            )
-                            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
-                            if proc.returncode == 0:
-                                logger.info("[%s] OK: %s", name, stdout.decode()[:300])
+                            # Run ingestion directly (no subprocess — unreliable on Railway)
+                            if 'quick_ingest' in str(path) or 'ingestion' in str(path):
+                                import importlib, sys as _sys2
+                                _sys2.path.insert(0, str(BASE2))
+                                spec = importlib.util.spec_from_file_location('ads_quick_ingest', str(path))
+                                mod = importlib.util.module_from_spec(spec)
+                                spec.loader.exec_module(mod)
+                                loop = asyncio.get_running_loop()
+                                await loop.run_in_executor(None, mod.run)
+                                logger.info("[%s] completed", name)
                             else:
-                                logger.error("[%s] FAIL: %s", name, stderr.decode()[:300])
+                                proc = await asyncio.create_subprocess_exec(
+                                    _sys.executable, str(path),
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE
+                                )
+                                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
+                                if proc.returncode == 0:
+                                    logger.info("[%s] OK: %s", name, stdout.decode()[:300])
+                                else:
+                                    logger.error("[%s] FAIL: %s", name, stderr.decode()[:300])
                         except asyncio.TimeoutError:
                             logger.warning("[%s] TIMEOUT after 30min", name)
                         except Exception as e:
