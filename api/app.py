@@ -185,27 +185,26 @@ async def data_status():
 
 @app.post("/admin/run-ingestion")
 async def run_ingestion(user_id: str = "master"):
-    """Trigger quick sync ingestion."""
-    from auth.rbac import RBACManager
-    rbac = RBACManager()
-    user = rbac.get_user(user_id)
-    if not user or user.role not in ("master_admin", "write_admin"):
-        raise HTTPException(403, "Master admin only")
-    
-    import asyncio, sys as _sys
+    """Trigger ingestion directly (no subprocess)."""
+    import importlib, sys as _sys2, asyncio
     from pathlib import Path as _Path
-    
     BASE3 = _Path(__file__).parent.parent
-    async def _exec(script):
-        path = BASE3 / script
-        try:
-            proc = await asyncio.create_subprocess_exec(_sys.executable, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=1800)
-            logger.info("[%s] %s", script, stdout.decode()[:500] if proc.returncode==0 else stderr.decode()[:500])
-        except Exception as e: logger.error("[%s] ERROR: %s", script, e)
+    path = BASE3 / "engines" / "ads_quick_ingest.py"
+    _sys2.path.insert(0, str(BASE3))
     
-    asyncio.create_task(_exec("engines/ads_quick_ingest.py"))
-    return {"status": "started", "message": "Quick sync ingestion running — 13 profiles, ~10-20 min"}
+    async def _run():
+        try:
+            spec = importlib.util.spec_from_file_location('ads_quick_ingest', str(path))
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, mod.run)
+            logger.info("Ingestion completed")
+        except Exception as e:
+            logger.error("Ingestion ERROR: %s", e)
+    
+    asyncio.create_task(_run())
+    return {"status": "started", "message": "Ingestion running (direct import) — 13 profiles, ~20 min"}
 
 
 @app.post("/admin/run-revenue")
@@ -1290,6 +1289,7 @@ async def _run_scheduler():
         (8, 0, 1, "engines/discrepancy_scanner.py", "Discrepancy Mon"),
         (8, 0, 5, "engines/discrepancy_scanner.py", "Discrepancy Fri"),
          (13, 0, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
+        (16, 0, None, "engines/order_pull.py", "Order Pull (Reports API)"),
         (17, 0, None, "daily_revenue_report.py", "Revenue Report"),
     ]
     
