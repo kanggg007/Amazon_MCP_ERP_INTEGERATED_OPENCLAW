@@ -1,0 +1,7 @@
+FROM node:22-slim
+RUN npm install -g openclaw
+COPY openclaw.json /app/openclaw.json
+WORKDIR /app
+ENV DEEPSEEK_API_KEY=$DEEPSEEK_API_KEY
+ENV FEISHU_APP_SECRET=$FEISHU_APP_SECRET
+CMD ["openclaw", "gateway", "start", "--port", "8080"]
