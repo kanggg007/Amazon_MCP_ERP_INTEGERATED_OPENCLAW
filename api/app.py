@@ -1291,7 +1291,7 @@ async def _run_scheduler():
         (8, 0, None, "engines/inbox_monitor.py", "Inbox"),
         (8, 0, 1, "engines/discrepancy_scanner.py", "Discrepancy Mon"),
         (8, 0, 5, "engines/discrepancy_scanner.py", "Discrepancy Fri"),
-         (14, 20, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
+         (14, 35, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
         (14, 0, None, "engines/negative_keyword_engine.py", "Negative Keywords"),
         (16, 0, None, "engines/order_pull.py", "Order Pull (Reports API)"),
         (17, 0, None, "daily_revenue_report.py", "Revenue Report"),
