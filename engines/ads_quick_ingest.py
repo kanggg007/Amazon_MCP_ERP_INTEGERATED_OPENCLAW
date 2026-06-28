@@ -2,8 +2,11 @@
 import os,httpx,json,gzip,time,psycopg2
 from datetime import datetime,timedelta
 
-for l in open(os.path.join(os.path.dirname(__file__) or '.','..','.env')).read().splitlines():
-    if l and '=' in l and not l.startswith('#'):k,v=l.split('=',1);os.environ[k.strip()]=v.strip()
+# Try loading from .env file (local), but Railway has vars in environment
+env_path = os.path.join(os.path.dirname(__file__) or '.','..','.env')
+if os.path.exists(env_path):
+    for l in open(env_path).read().splitlines():
+        if l and '=' in l and not l.startswith('#'):k,v=l.split('=',1);os.environ[k.strip()]=v.strip()
 
 DSN=os.environ.get("DATABASE_URL","postgresql://postgres:ZTHtVHerPtatmfNeCufdSaqieNjmfxmW@acela.proxy.rlwy.net:58049/railway?sslmode=require")
 
