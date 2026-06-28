@@ -233,6 +233,44 @@ async def run_revenue(user_id: str = "master"):
     return {"status": "started", "message": "Revenue report running"}
 
 
+async def _startup_ingest():
+    """Run ingestion on startup if not done today."""
+    import asyncio
+    await asyncio.sleep(30)  # Let DB and auth initialize
+    from datetime import datetime, timezone, timedelta
+    from pathlib import Path as _Path
+    import os as _os, sys as _sys
+    
+    today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    
+    # Check if today's data exists in DB
+    try:
+        import psycopg2
+        dsn = _os.environ.get("DATABASE_URL", "")
+        if dsn:
+            conn = psycopg2.connect(dsn)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM ads_daily WHERE date = %s", (today,))
+            count = cur.fetchone()[0]
+            conn.close()
+            if count > 0:
+                logger.info("Startup ingest: %d reports already exist for %s, skipping", count, today)
+                return
+    except Exception as e:
+        logger.warning("Startup ingest DB check failed: %s", e)
+    
+    logger.info("Startup ingest: running for %s", today)
+    BASE3 = _Path(__file__).parent.parent
+    path = BASE3 / "engines" / "ads_quick_ingest.py"
+    if path.exists():
+        cmd = f"{_sys.executable} {path}"
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, lambda: _os.popen(cmd).read())
+        logger.info("Startup ingest done: %s", result[:300] if result else 'no output')
+    else:
+        logger.error("Startup ingest: script not found at %s", path)
+
+
 @app.get("/test/deepseek")
 async def test_deepseek():
     """Test DeepSeek API connectivity."""
@@ -1342,6 +1380,9 @@ async def startup():
     # Start scheduler FIRST — it must always run
     import asyncio as _asyncio
     _asyncio.create_task(_run_scheduler())
+    
+    # Run ingestion if today hasn't been done yet
+    _asyncio.create_task(_startup_ingest())
     
     try:
         from auth import get_store_registry
