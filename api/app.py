@@ -1306,6 +1306,7 @@ async def _run_scheduler():
     ]
     
     logger.info("Scheduler started with %d jobs", len(SCHEDULE))
+    print(f"[SCHEDULER] Started with {len(SCHEDULE)} jobs", flush=True)
     last_run = {}
     
     while True:
@@ -1313,6 +1314,7 @@ async def _run_scheduler():
             now = datetime.now(TZ)
             if now.minute % 5 == 0 and now.second < 60:
                 logger.info("[Scheduler] alive at %s", now.strftime("%H:%M"))
+                print(f"[SCHEDULER] alive at {now.strftime('%H:%M')}", flush=True)
             for hour, minute, dow, script, name in SCHEDULE:
                 key = (hour, minute, dow or 0, script)
                 if now.hour == hour and now.minute == minute:
