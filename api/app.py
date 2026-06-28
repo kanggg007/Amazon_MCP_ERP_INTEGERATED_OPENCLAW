@@ -1289,7 +1289,7 @@ async def _run_scheduler():
         (8, 0, None, "engines/inbox_monitor.py", "Inbox"),
         (8, 0, 1, "engines/discrepancy_scanner.py", "Discrepancy Mon"),
         (8, 0, 5, "engines/discrepancy_scanner.py", "Discrepancy Fri"),
-         (13, 0, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
+         (13, 35, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
         (14, 0, None, "engines/negative_keyword_engine.py", "Negative Keywords"),
         (16, 0, None, "engines/order_pull.py", "Order Pull (Reports API)"),
         (17, 0, None, "daily_revenue_report.py", "Revenue Report"),
@@ -1311,22 +1311,12 @@ async def _run_scheduler():
                     last_run[key] = now
                     path = BASE2 / script
                     if path.exists():
-                        try:
-                            # Use subprocess.run (reliable, blocking, works everywhere)
-                            import subprocess as _sp
-                            loop = asyncio.get_running_loop()
-                            result = await loop.run_in_executor(None, lambda: _sp.run(
-                                [_sys.executable, str(path)],
-                                capture_output=True, text=True, timeout=1800, cwd=str(BASE2)
-                            ))
-                            if result.returncode == 0:
-                                logger.info("[%s] OK: %s", name, result.stdout[:300])
-                            else:
-                                logger.error("[%s] FAIL: %s", name, result.stderr[:300])
-                        except asyncio.TimeoutError:
-                            logger.warning("[%s] TIMEOUT after 30min", name)
-                        except Exception as e:
-                            logger.error("[%s] ERROR: %s", name, e)
+                        import os as _os
+                        cmd = f"{_sys.executable} {path} 2>&1"
+                        logger.info("[%s] Running: %s", name, cmd)
+                        loop = asyncio.get_running_loop()
+                        result = await loop.run_in_executor(None, lambda: _os.popen(cmd).read())
+                        logger.info("[%s] Done: %s", name, result[:300] if result else 'no output')
             await asyncio.sleep(60)
         except Exception as e:
             logger.error("Scheduler loop error: %s", e)
