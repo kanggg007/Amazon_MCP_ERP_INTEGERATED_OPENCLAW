@@ -10,6 +10,9 @@ if os.path.exists(env_path):
 
 DSN=os.environ.get("DATABASE_URL","postgresql://postgres:ZTHtVHerPtatmfNeCufdSaqieNjmfxmW@acela.proxy.rlwy.net:58049/railway?sslmode=require")
 
+# FX rates to USD
+FX_USD={"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95,"GBP":1.13,"MXN":0.05,"BRL":0.18}
+
 PROFILES={
     "CUCZUUS":{("US","02","3465892858543553","na"),("CA","02","3474360124295876","na"),("AU","02","3457387109813217","fe"),("JP","02","1336746761611490","fe"),("DE","02","2148844609196157","eu")},
     "BOOLUU":{("US","03","2902488181372396","na"),("CA","03","1000058889542591","na"),("AU","03","671129043949754","fe"),("JP","03","1702417705815456","fe")},
@@ -48,9 +51,16 @@ def run():
                     if isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],list):rows=rows[0]
                     cost=sum(float(r2.get("cost",0)) for r2 in rows if isinstance(r2,dict))
                     sales=sum(float(r2.get("sales1d",0)) for r2 in rows if isinstance(r2,dict))
+                    # Convert to USD (local currency from Ads API)
+                    fx=FX_USD.get("USD",1.0)  # Default USD — per-market override below
+                    if market=="CA":fx=FX_USD["CAD"]
+                    elif market=="AU":fx=FX_USD["AUD"]
+                    elif market=="JP":fx=FX_USD["JPY"]
+                    elif market=="DE":fx=FX_USD["EUR"]
+                    cost_usd=cost*fx;sales_usd=sales*fx
                     conn=psycopg2.connect(DSN)
                     cur=conn.cursor()
-                    cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,"sp_campaigns",yesterday,json.dumps(rows),cost,sales))
+                    cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,"sp_campaigns",yesterday,json.dumps(rows),cost_usd,sales_usd))
                     conn.commit();conn.close()
                     n+=1
                     print(f"  {store}/{market}: {len(rows)} rows, ${cost:.2f}, {int(time.time()-t0)}s")
