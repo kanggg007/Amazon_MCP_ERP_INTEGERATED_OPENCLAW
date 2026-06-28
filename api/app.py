@@ -165,6 +165,14 @@ async def health():
     return {"status": "ok", "version": "1.0.0"}
 
 
+@app.get("/scheduler-status")
+async def scheduler_status():
+    """Check if scheduler is alive and what time it thinks it is."""
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    cst = _dt.now(_tz(_td(hours=8)))
+    return {"scheduler_time_cst": cst.strftime("%Y-%m-%d %H:%M:%S"), "utc": _dt.now(_tz.utc).strftime("%H:%M")}
+
+
 @app.get("/admin/data-status")
 async def data_status():
     """Check data + scheduler health."""
