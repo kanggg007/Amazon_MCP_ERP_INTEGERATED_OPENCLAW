@@ -167,9 +167,10 @@ async def health():
 
 @app.get("/admin/data-status")
 async def data_status():
-    """Check what data is available in PostgreSQL."""
+    """Check data + scheduler health."""
     try:
-        import psycopg2, os as _os, json as _json
+        import psycopg2, os as _os
+        from datetime import datetime as _dt
         dsn = _os.environ.get("DATABASE_URL", "")
         conn = psycopg2.connect(dsn)
         cur = conn.cursor()
@@ -178,7 +179,7 @@ async def data_status():
         for r in cur.fetchall():
             rows.append({"store":r[0],"market":r[1],"type":r[2],"date":str(r[3]),"cost":float(r[4]),"sales":float(r[5]),"pulled":str(r[6])})
         conn.close()
-        return {"status":"ok","count":len(rows),"rows":rows}
+        return {"status":"ok","count":len(rows),"rows":rows,"app_uptime": str(_dt.now())}
     except Exception as e:
         return {"status":"error","message":str(e)[:200]}
 
