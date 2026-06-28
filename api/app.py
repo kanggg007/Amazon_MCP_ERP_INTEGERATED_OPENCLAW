@@ -1299,7 +1299,7 @@ async def _run_scheduler():
         (8, 0, None, "engines/inbox_monitor.py", "Inbox"),
         (8, 0, 1, "engines/discrepancy_scanner.py", "Discrepancy Mon"),
         (8, 0, 5, "engines/discrepancy_scanner.py", "Discrepancy Fri"),
-         (14, 40, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
+         (14, 44, None, "engines/ads_quick_ingest.py", "Ads Ingestion"),
         (14, 0, None, "engines/negative_keyword_engine.py", "Negative Keywords"),
         (16, 0, None, "engines/order_pull.py", "Order Pull (Reports API)"),
         (17, 0, None, "daily_revenue_report.py", "Revenue Report"),
@@ -1334,6 +1334,10 @@ async def _run_scheduler():
 
 
 async def startup():
+    # Start scheduler FIRST — it must always run
+    import asyncio as _asyncio
+    _asyncio.create_task(_run_scheduler())
+    
     try:
         from auth import get_store_registry
         registry = get_store_registry()
@@ -1341,10 +1345,6 @@ async def startup():
         logger.info("API started. Stores: %s | Users: %s",
                      list(registry.active_stores.keys()) if registry.active_stores else "none",
                      [u.user_id for u in rbac.list_users()])
-        
-        # Start background scheduler for cron jobs
-        import asyncio as _asyncio
-        _asyncio.create_task(_run_scheduler())
     except Exception as e:
         logger.warning("Startup with limited config: %s", e)
 
