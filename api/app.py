@@ -236,6 +236,7 @@ async def run_revenue(user_id: str = "master"):
 async def _startup_ingest():
     """Run ingestion on startup if not done today."""
     import asyncio
+    print("[STARTUP-INGEST] Waiting 30s...", flush=True)
     await asyncio.sleep(30)  # Let DB and auth initialize
     from datetime import datetime, timezone, timedelta
     from pathlib import Path as _Path
@@ -1383,6 +1384,7 @@ async def startup():
     
     # Run ingestion if today hasn't been done yet
     _asyncio.create_task(_startup_ingest())
+    print("[STARTUP] Scheduler + ingest tasks created", flush=True)
     
     try:
         from auth import get_store_registry
