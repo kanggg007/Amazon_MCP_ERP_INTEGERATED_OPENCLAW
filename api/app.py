@@ -1280,8 +1280,10 @@ async def get_ratecard(market: str):
 async def _run_scheduler():
     """Background scheduler — checks every 60s, runs jobs at scheduled times."""
     import asyncio, subprocess, sys as _sys
-    from datetime import datetime as _dt
+    from datetime import datetime, timezone, timedelta
     from pathlib import Path as _Path
+    
+    TZ = timezone(timedelta(hours=8))  # Asia/Shanghai
     
     BASE2 = _Path(__file__).parent.parent if __file__.endswith('api/app.py') else _Path.cwd()
     SCHEDULE = [
@@ -1300,7 +1302,7 @@ async def _run_scheduler():
     
     while True:
         try:
-            now = _dt.now()
+            now = datetime.now(TZ)
             for hour, minute, dow, script, name in SCHEDULE:
                 key = (hour, minute, dow or 0, script)
                 if now.hour == hour and now.minute == minute:
