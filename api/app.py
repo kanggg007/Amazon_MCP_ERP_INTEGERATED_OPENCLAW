@@ -1392,8 +1392,8 @@ async def startup():
     import asyncio as _asyncio
     _asyncio.create_task(_run_scheduler())
     
-    # DIRECTLY run ingestion on startup — no checks, just do it
-    import os as _os, sys as _sys, subprocess as _sp
+    # DIRECTLY run ingestion on startup — raw thread, no executor
+    import os as _os, sys as _sys, subprocess as _sp, threading as _th
     script = str(Path(__file__).parent.parent / "engines" / "ads_quick_ingest.py")
     logpath = "/tmp/ingest.log"
     print(f"[STARTUP] Running ingestion: {script}", flush=True)
@@ -1407,8 +1407,7 @@ async def startup():
             with open(logpath, "w") as f:
                 f.write(f"ERROR: {e}")
             print(f"[INGEST] ERROR: {e}", flush=True)
-    loop = _asyncio.get_running_loop()
-    loop.run_in_executor(None, _run)
+    _th.Thread(target=_run, daemon=True).start()
     
     try:
         from auth import get_store_registry
