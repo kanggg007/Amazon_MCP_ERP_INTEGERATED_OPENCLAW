@@ -31,14 +31,32 @@ def run():
     for store,markets in PROFILES.items():
         for market,snum,pid,region in markets:
             cid=os.environ[f"STORE_{snum}_ADS_CLIENT_ID"];csec=os.environ[f"STORE_{snum}_ADS_CLIENT_SECRET"];ref=os.environ[f"STORE_{snum}_ADS_REFRESH_TOKEN"]
-            r=httpx.post("https://api.amazon.com/auth/o2/token",json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref},timeout=10)
+            # Get token with retry
+            r=None
+            for a in range(3):
+                r=httpx.post("https://api.amazon.com/auth/o2/token",json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref},timeout=10)
+                if r.status_code==200:break
+                time.sleep(5*(2**a))
+            if not r or r.status_code!=200:
+                print(f"  {store}/{market}: Auth FAIL")
+                continue
             tk=r.json()["access_token"]
             host=HOSTS[region]
             h={"Authorization":f"Bearer {tk}","Amazon-Advertising-API-ClientId":cid,"Amazon-Advertising-API-Scope":pid,"Content-Type":"application/json"}
             body={"startDate":yesterday,"endDate":yesterday,"configuration":{"adProduct":"SPONSORED_PRODUCTS","groupBy":["campaign"],"columns":COLUMNS.split(","),"reportTypeId":"spCampaigns","timeUnit":"SUMMARY","format":"GZIP_JSON"}}
-            rr=httpx.post(f"https://{host}/reporting/reports",headers=h,json=body,timeout=15)
-            if rr.status_code!=200:
+            # Create report with retry for rate limits
+            rr=None
+            for attempt in range(5):
+                rr=httpx.post(f"https://{host}/reporting/reports",headers=h,json=body,timeout=15)
+                if rr.status_code==200:break
+                if rr.status_code in (425,429):
+                    wait=10*(2**attempt)
+                    print(f"  {store}/{market}: rate limited, waiting {wait}s...")
+                    time.sleep(wait)
+                    continue
                 print(f"  {store}/{market}: FAIL {rr.status_code}")
+                break
+            if not rr or rr.status_code!=200:
                 continue
             rid=rr.json()["reportId"]
             for i in range(25):
