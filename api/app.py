@@ -173,6 +173,16 @@ async def scheduler_status():
     return {"scheduler_time_cst": cst.strftime("%Y-%m-%d %H:%M:%S"), "utc": _dt.now(_tz.utc).strftime("%H:%M")}
 
 
+@app.get("/debug/ingest-log")
+async def ingest_log():
+    """Read the ingest log file."""
+    try:
+        with open("/tmp/ingest.log") as f:
+            return {"log": f.read()[-2000:]}
+    except:
+        return {"log": "No log yet"}
+
+
 @app.get("/admin/data-status")
 async def data_status():
     """Check data + scheduler health."""
