@@ -47,8 +47,9 @@ def pull_one(store,snum,market,pid,region,yesterday):
     else:return f"{store}/{market}: Rate limited 5x"
     
     rid=rr.json()["reportId"]
-    for i in range(25):
-        time.sleep(5)
+    max_polls=40 if region=="na" else 25  # NA can be slow
+    for i in range(max_polls):
+        time.sleep(6)
         rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
         s=rp.json()["status"]
         if s=="COMPLETED":
@@ -79,18 +80,11 @@ def pull_store(store,results):
 
 def run():
     yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (parallel) — {yesterday}")
+    print(f"Ingestion (sequential) — {yesterday}")
     t0=time.time()
-    
     results=[]
-    threads=[]
     for store in STORES:
-        t=threading.Thread(target=pull_store,args=(store,results))
-        t.start()
-        threads.append(t)
-    
-    for t in threads:t.join()
-    
+        pull_store(store,results)
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
 
 if __name__=="__main__":
