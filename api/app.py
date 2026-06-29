@@ -1392,25 +1392,37 @@ async def startup():
     import asyncio as _asyncio
     _asyncio.create_task(_run_scheduler())
     
-    # DIRECTLY run ingestion on startup — raw thread
-    import os as _os, sys as _sys, subprocess as _sp, threading as _th
-    script = str(Path(__file__).parent.parent / "engines" / "ads_quick_ingest.py")
-    logpath = "/tmp/ingest.log"
-    print(f"[STARTUP] Running ingestion: {script}", flush=True)
+    # Run ingestion only if today's data is missing
     def _run():
         try:
-            with open(logpath, "w") as lf:
-                lf.write("Starting ingest...\n"); lf.flush()
-                proc = _sp.Popen([_sys.executable, script], stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True, cwd=str(Path(__file__).parent.parent))
+            # Check DB first — skip if today already has data
+            _dsn = os.environ.get("DATABASE_URL","")
+            if _dsn:
+                import psycopg2 as _pg
+                _conn = _pg.connect(_dsn)
+                _cur = _conn.cursor()
+                from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+                _today = _dt.now(_tz(_td(hours=8))).strftime("%Y-%m-%d")
+                _cur.execute("SELECT COUNT(DISTINCT store||market) FROM ads_daily WHERE date=%s",(_today,))
+                _count = _cur.fetchone()[0]
+                _conn.close()
+                if _count >= 8:
+                    print(f"[INGEST] Skipped — {_count} profiles already ingested for {_today}",flush=True)
+                    return
+            
+            # Run ingest
+            with open(logpath,"w") as lf:
+                lf.write("Starting ingest...\n");lf.flush()
+                proc=_sp.Popen([_sys.executable,script],stdout=_sp.PIPE,stderr=_sp.STDOUT,text=True,cwd=str(Path(__file__).parent.parent))
                 for line in proc.stdout:
-                    lf.write(line); lf.flush()
+                    lf.write(line);lf.flush()
                 proc.wait()
-                lf.write(f"\nDONE. RC={proc.returncode}\n"); lf.flush()
-            print(f"[INGEST] Done. RC={proc.returncode}", flush=True)
+                lf.write(f"\nDONE. RC={proc.returncode}\n");lf.flush()
+            print(f"[INGEST] Done. RC={proc.returncode}",flush=True)
         except Exception as e:
-            with open(logpath, "w") as f:
+            with open(logpath,"w") as f:
                 f.write(f"ERROR: {e}")
-            print(f"[INGEST] ERROR: {e}", flush=True)
+            print(f"[INGEST] ERROR: {e}",flush=True)
     _th.Thread(target=_run, daemon=True).start()
     
     try:
