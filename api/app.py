@@ -1392,17 +1392,21 @@ async def startup():
     import asyncio as _asyncio
     _asyncio.create_task(_run_scheduler())
     
-    # DIRECTLY run ingestion on startup — raw thread, no executor
+    # DIRECTLY run ingestion on startup — raw thread
     import os as _os, sys as _sys, subprocess as _sp, threading as _th
     script = str(Path(__file__).parent.parent / "engines" / "ads_quick_ingest.py")
     logpath = "/tmp/ingest.log"
     print(f"[STARTUP] Running ingestion: {script}", flush=True)
     def _run():
         try:
-            result = _sp.run([_sys.executable, script], capture_output=True, text=True, timeout=1800, cwd=str(Path(__file__).parent.parent))
-            with open(logpath, "w") as f:
-                f.write("STDOUT:\n" + result.stdout + "\nSTDERR:\n" + result.stderr)
-            print(f"[INGEST] Done. RC={result.returncode}", flush=True)
+            with open(logpath, "w") as lf:
+                lf.write("Starting ingest...\n"); lf.flush()
+                proc = _sp.Popen([_sys.executable, script], stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True, cwd=str(Path(__file__).parent.parent))
+                for line in proc.stdout:
+                    lf.write(line); lf.flush()
+                proc.wait()
+                lf.write(f"\nDONE. RC={proc.returncode}\n"); lf.flush()
+            print(f"[INGEST] Done. RC={proc.returncode}", flush=True)
         except Exception as e:
             with open(logpath, "w") as f:
                 f.write(f"ERROR: {e}")
