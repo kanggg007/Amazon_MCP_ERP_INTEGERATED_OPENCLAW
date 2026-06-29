@@ -1386,8 +1386,14 @@ async def startup():
     import os as _os, sys as _sys
     script = str(Path(__file__).parent.parent / "engines" / "ads_quick_ingest.py")
     print(f"[STARTUP] Running ingestion: {script}", flush=True)
+    logpath = "/tmp/ingest.log"
     loop = _asyncio.get_running_loop()
-    loop.run_in_executor(None, lambda: _os.popen(f"{_sys.executable} {script}").read())
+    def run_ingest():
+        with _os.popen(f"{_sys.executable} {script} 2>&1") as p:
+            output = p.read()
+        with open(logpath,"w") as f:f.write(output)
+        return output
+    loop.run_in_executor(None, run_ingest)
     
     try:
         from auth import get_store_registry
