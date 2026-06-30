@@ -335,20 +335,59 @@ async def run_orders(user_id: str = "master"):
     return {"status": "started", "message": "Order pull running"}
 
 @app.post("/admin/run-revenue")
-async def run_revenue(user_id: str = "master"):
-    """Trigger daily revenue report."""
-    import asyncio, sys as _sys
-    from pathlib import Path as _Path
-    BASE3 = _Path(__file__).parent.parent
-    async def _exec():
-        path = BASE3 / "daily_revenue_report.py"
-        try:
-            proc = await asyncio.create_subprocess_exec(_sys.executable, str(path), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
-            logger.info("[Revenue] %s", stdout.decode()[:1000] if proc.returncode==0 else stderr.decode()[:500])
-        except Exception as e: logger.error("[Revenue] ERROR: %s", e)
-    asyncio.create_task(_exec())
-    return {"status": "started", "message": "Revenue report running"}
+async def run_revenue(user_id: str = "master", date: str = None):
+    """Revenue report combining ads (DB) + orders (DB) in USD."""
+    import asyncio, threading, json as _json
+    from datetime import datetime, timedelta, timezone
+    
+    if date is None:
+        date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    FX = {"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95}
+    
+    def _run():
+        import psycopg2, os as _os
+        dsn = _os.environ.get("DATABASE_URL","")
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor()
+        
+        # Ads spend
+        cur.execute("SELECT store, market, report_type, cost, sales, data FROM ads_daily WHERE date = %s AND report_type = 'sp_campaigns'",(date,))
+        ads = cur.fetchall()
+        
+        # Orders
+        cur.execute("SELECT store, market, order_count, revenue, shipped, pending FROM orders_daily WHERE date = %s",(date,))
+        orders = cur.fetchall()
+        conn.close()
+        
+        # Combine
+        report = {}
+        for s,m,rt,cost,sales,data in ads:
+            key = f"{s}/{m}"
+            if key not in report: report[key] = {"ads_cost":0,"ads_sales":0,"orders":0,"order_rev":0,"order_rev_usd":0}
+            report[key]["ads_cost"] += float(cost or 0)
+            report[key]["ads_sales"] += float(sales or 0)
+        for s,m,oc,rev,shipped,pending in orders:
+            key = f"{s}/{m}"
+            if key not in report: report[key] = {"ads_cost":0,"ads_sales":0,"orders":0,"order_rev":0,"order_rev_usd":0}
+            fx = FX.get(m,1.0)
+            report[key]["orders"] += oc or 0
+            report[key]["order_rev"] += float(rev or 0)
+            report[key]["order_rev_usd"] += float(rev or 0) * fx
+        
+        print(f"Revenue Report — {date}", flush=True)
+        total_ads = total_orders = 0
+        for key in sorted(report.keys()):
+            d = report[key]
+            acos = d['ads_sales'] and (d['ads_cost']/d['ads_sales']*100) or 0
+            print(f"  {key}: Ads ${d['ads_cost']:.2f} | Orders {d['orders']} ${d['order_rev_usd']:,.2f} USD | ACOS {acos:.0f}%", flush=True)
+            total_ads += d['ads_cost']
+            total_orders += d['order_rev_usd']
+        print(f"  TOTAL: Ads ${total_ads:,.2f} | Orders ${total_orders:,.2f} USD", flush=True)
+        print(f"[REVENUE] Complete", flush=True)
+    
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status":"started","date":date,"message":"Revenue report running"}
 
 
 async def _startup_ingest():
