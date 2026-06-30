@@ -1414,26 +1414,21 @@ async def startup():
     import asyncio as _asyncio
     _asyncio.create_task(_run_scheduler())
     
-    # DIRECTLY run ingestion on startup — raw thread, NO skip check
-    import os as _os, sys as _sys, subprocess as _sp, threading as _th
-    script = str(Path(__file__).parent.parent / "engines" / "ads_quick_ingest.py")
-    logpath = "/tmp/ingest.log"
-    print(f"[STARTUP] Running ingestion: {script}", flush=True)
-    def _run():
+    # Run ingestion INSIDE the app — no subprocess, no Popen
+    import threading as _th
+    print(f"[STARTUP] Running ingestion INLINE", flush=True)
+    def _run_inline():
         try:
-            with open(logpath, "w") as lf:
-                lf.write("Starting ingest...\n"); lf.flush()
-                proc = _sp.Popen([_sys.executable, script], stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True, cwd=str(Path(__file__).parent.parent))
-                for line in proc.stdout:
-                    lf.write(line); lf.flush()
-                proc.wait()
-                lf.write(f"\nDONE. RC={proc.returncode}\n"); lf.flush()
-            print(f"[INGEST] Done. RC={proc.returncode}", flush=True)
+            import sys as _s
+            _s.path.insert(0, str(Path(__file__).parent.parent))
+            from engines.ads_quick_ingest import run
+            run()
+            print(f"[INGEST] Complete", flush=True)
         except Exception as e:
-            with open(logpath, "w") as f:
-                f.write(f"ERROR: {e}")
             print(f"[INGEST] ERROR: {e}", flush=True)
-    _th.Thread(target=_run, daemon=True).start()
+            import traceback
+            traceback.print_exc()
+    _th.Thread(target=_run_inline, daemon=True).start()
     
     try:
         from auth import get_store_registry
