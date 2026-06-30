@@ -186,7 +186,7 @@ async def test_ads_poll():
     if rr.status_code!=200:return {"error":"Create failed","status":rr.status_code,"body":rr.text[:300]}
     rid=rr.json()['reportId']
     polls=[]
-    for i in range(10):
+    for i in range(3):
         import time,asyncio
         await asyncio.sleep(5)
         rp=httpx.get('https://advertising-api.amazon.com/reporting/reports/'+rid,headers=h,timeout=10)
