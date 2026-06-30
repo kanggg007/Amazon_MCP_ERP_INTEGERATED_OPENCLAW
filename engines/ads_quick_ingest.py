@@ -104,12 +104,17 @@ def run():
         for store in STORES:
             snum=STORES[store]
             for market,pid,region in PROFILES[store]:
-                t=threading.Thread(target=lambda s=store,n=snum,m=market,p=pid,r=region,rt=rtype,c=cfg: results.append(pull_one(s,n,m,p,r,rt,c,yesterday)))
+                t=threading.Thread(target=lambda s=store,n=snum,m=market,p=pid,r=region,rt=rtype,c=cfg: _run_and_print(results,s,n,m,p,r,rt,c,yesterday))
                 t.start()
                 threads.append(t)
         for t in threads:t.join()
         print(f"  {rtype}: {len([r for r in results[-13:]])} profiles done")
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
+
+def _run_and_print(results,*args):
+    r=pull_one(*args)
+    results.append(r)
+    print(r,flush=True)
 
 if __name__=="__main__":
     load_env()
