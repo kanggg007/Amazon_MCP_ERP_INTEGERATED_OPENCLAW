@@ -237,12 +237,14 @@ async def data_status():
         dsn = _os.environ.get("DATABASE_URL", "")
         conn = psycopg2.connect(dsn)
         cur = conn.cursor()
-        cur.execute("SELECT store, market, report_type, date, cost, sales, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 20")
+        cur.execute("SELECT COUNT(*) FROM ads_daily")
+        total=cur.fetchone()[0]
+        cur.execute("SELECT store, market, report_type, date, cost, sales, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 200")
         rows = []
         for r in cur.fetchall():
             rows.append({"store":r[0],"market":r[1],"type":r[2],"date":str(r[3]),"cost":float(r[4]),"sales":float(r[5]),"pulled":str(r[6])})
         conn.close()
-        return {"status":"ok","count":len(rows),"rows":rows,"app_uptime": str(_dt.now())}
+        return {"status":"ok","db_total":total,"shown":len(rows),"rows":rows,"app_uptime": str(_dt.now())}
     except Exception as e:
         return {"status":"error","message":str(e)[:200]}
 
