@@ -191,11 +191,19 @@ async def test_ads_poll():
     sc=rr.status_code
     result={'create_status':sc}
     if sc==425:
-        result['note']='425 duplicate';result['body_preview']=rr.text[:300]
+        result['note']='425 duplicate'
+        # Extract reportId from detail message
+        try:
+            import re
+            msg=rr.json().get('detail','')
+            m=re.search(r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',msg)
+            rid=m.group(1) if m else None
+        except:rid=None
+        if not rid:result['error']='425 no reportId';return result
     elif sc!=200:
         result['error']=rr.text[:300];return result
-    
-    rid=rr.json().get('reportId') if sc in (200,425) else None
+    else:
+        rid=rr.json().get('reportId')
     if not rid:result['error']='no reportId';return result
     result['report_id']=rid
     

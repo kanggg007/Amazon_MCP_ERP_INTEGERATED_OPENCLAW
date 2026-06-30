@@ -74,10 +74,17 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
                 print(f"  [{store}/{market}/{rtype}] 429, backoff {backoff}s")
                 time.sleep(backoff);backoff*=2;continue
             if rr.status_code==425:
-                try:rid=rr.json().get("reportId")
+                # Try get reportId from response, then from detail message
+                try:
+                    d=rr.json()
+                    rid=d.get("reportId")
+                    if not rid:
+                        import re
+                        m=re.search(r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})',d.get("detail",""))
+                        rid=m.group(1) if m else None
                 except:pass
                 if rid:
-                    print(f"  [{store}/{market}/{rtype}] 425, using existing report {rid}")
+                    print(f"  [{store}/{market}/{rtype}] 425 using existing report {rid}")
                     break
                 print(f"  [{store}/{market}/{rtype}] 425, backoff {backoff}s")
                 time.sleep(backoff);backoff*=2;continue
