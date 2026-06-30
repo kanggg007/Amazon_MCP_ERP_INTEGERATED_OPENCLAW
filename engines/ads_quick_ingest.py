@@ -5,9 +5,11 @@ from datetime import datetime,timedelta
 DSN=os.environ.get("DATABASE_URL","postgresql://postgres:ZTHtVHerPtatmfNeCufdSaqieNjmfxmW@acela.proxy.rlwy.net:58049/railway?sslmode=require")
 FX_USD={"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95}
 HOSTS={"na":"advertising-api.amazon.com","fe":"advertising-api-fe.amazon.com","eu":"advertising-api-eu.amazon.com"}
+# Marketplace IDs for filtering NA reports (exclude MX)
+NA_MARKET_IDS={"US":"ATVPDKIKX0DER","CA":"A2EUQ1WTGCTBG2"}
 
 REPORT_TYPES={
-    "sp_campaigns":{"reportTypeId":"spCampaigns","groupBy":["campaign"],"columns":"cost,campaignName,campaignStatus,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy"},
+    "sp_campaigns":{"reportTypeId":"spCampaigns","groupBy":["campaign"],"columns":"cost,campaignName,campaignStatus,campaignMarketplaceId,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy"},
     "sp_search_terms":{"reportTypeId":"spSearchTerm","groupBy":["searchTerm"],"columns":"searchTerm,keyword,matchType,cost,clicks,impressions,sales1d,campaignName"},
     "sp_targeting":{"reportTypeId":"spTargeting","groupBy":["targeting"],"columns":"keyword,matchType,cost,clicks,impressions,sales1d,campaignName"},
     "sp_advertised_product":{"reportTypeId":"spAdvertisedProduct","groupBy":["advertiser"],"columns":"advertisedAsin,advertisedSku,cost,clicks,impressions,sales1d"},
@@ -98,6 +100,10 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
                 raw=gzip.decompress(httpx.get(rp.json()["url"],timeout=60).content).decode()
                 rows=json.loads(raw)
                 if isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],list):rows=rows[0]
+                # Filter by marketplace for NA region (exclude MX, separate US/CA)
+                if region=="na" and market in NA_MARKET_IDS:
+                    mid=NA_MARKET_IDS[market]
+                    rows=[r2 for r2 in rows if isinstance(r2,dict) and r2.get("campaignMarketplaceId","")==mid]
                 cost=sum(float(r2.get("cost",0)) for r2 in rows if isinstance(r2,dict))
                 sales=sum(float(r2.get("sales1d",0)) for r2 in rows if isinstance(r2,dict))
                 fx=FX_USD.get(market,1.0) or FX_USD.get("USD",1.0)
