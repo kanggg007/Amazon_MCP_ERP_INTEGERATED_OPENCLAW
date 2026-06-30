@@ -1,11 +1,10 @@
-"""Quick ingestion — all profiles in parallel across stores. Threaded for speed."""
+"""Ads ingestion with de-duplication, DB skip-check, exponential backoff."""
 import os,httpx,json,gzip,time,psycopg2,threading
 from datetime import datetime,timedelta
 
 DSN=os.environ.get("DATABASE_URL","postgresql://postgres:ZTHtVHerPtatmfNeCufdSaqieNjmfxmW@acela.proxy.rlwy.net:58049/railway?sslmode=require")
 FX_USD={"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95}
 HOSTS={"na":"advertising-api.amazon.com","fe":"advertising-api-fe.amazon.com","eu":"advertising-api-eu.amazon.com"}
-COLUMNS="cost,campaignName,campaignStatus,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy"
 
 REPORT_TYPES={
     "sp_campaigns":{"reportTypeId":"spCampaigns","groupBy":["campaign"],"columns":"cost,campaignName,campaignStatus,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy"},
@@ -15,9 +14,7 @@ REPORT_TYPES={
     "sp_purchased_product":{"reportTypeId":"spPurchasedProduct","groupBy":["asin"],"columns":"purchasedAsin,advertisedAsin,advertisedSku,sales1d,sales7d,sales30d,purchases1d,purchases7d,purchases30d,campaignName"},
 }
 
-STORES={
-    "CUCZUUS":"02","BOOLUU":"03","Heliumx":"04"
-}
+STORES={"CUCZUUS":"02","BOOLUU":"03","Heliumx":"04"}
 
 PROFILES={
     "CUCZUUS":[("US","3465892858543553","na"),("CA","3474360124295876","na"),("AU","3457387109813217","fe"),("JP","1336746761611490","fe"),("DE","2148844609196157","eu")],
@@ -25,100 +22,134 @@ PROFILES={
     "Heliumx":[("US","1416052288010129","na"),("CA","3865316191299322","na"),("AU","422659196126799","fe"),("DE","4304939656717104","eu")],
 }
 
+# Global set to prevent duplicate report creation within the same process
+_IN_FLIGHT=set()
+
+def _already_in_db(store,market,rtype,date_str):
+    """Check if data already exists in DB for this (store,market,rtype,date)."""
+    try:
+        conn=psycopg2.connect(DSN)
+        cur=conn.cursor()
+        cur.execute("SELECT 1 FROM ads_daily WHERE store=%s AND market=%s AND report_type=%s AND date=%s LIMIT 1",(store,market,rtype,date_str))
+        exists=cur.fetchone() is not None
+        conn.close()
+        return exists
+    except:return False
+
+def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
+    # 1. DEDUP: skip if already in DB
+    if _already_in_db(store,market,rtype,yesterday):
+        return f"{store}/{market}/{rtype}: SKIP (already in DB)"
+    
+    # 2. DEDUP: skip if already in flight
+    flight_key=(store,market,rtype,yesterday)
+    if flight_key in _IN_FLIGHT:
+        return f"{store}/{market}/{rtype}: SKIP (in flight)"
+    _IN_FLIGHT.add(flight_key)
+    
+    try:
+        # Auth
+        cid=os.environ[f"STORE_{snum}_ADS_CLIENT_ID"];csec=os.environ[f"STORE_{snum}_ADS_CLIENT_SECRET"];ref=os.environ[f"STORE_{snum}_ADS_REFRESH_TOKEN"]
+        for a in range(3):
+            r=httpx.post("https://api.amazon.com/auth/o2/token",json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref},timeout=15)
+            if r.status_code==200:break
+            time.sleep(5*(2**a))
+        else:return f"{store}/{market}/{rtype}: Auth FAIL"
+        
+        tk=r.json()["access_token"]
+        host=HOSTS[region]
+        h={"Authorization":f"Bearer {tk}","Amazon-Advertising-API-ClientId":cid,"Amazon-Advertising-API-Scope":pid,"Content-Type":"application/json"}
+        cols=rtype_cfg["columns"]
+        body={"startDate":yesterday,"endDate":yesterday,"configuration":{"adProduct":"SPONSORED_PRODUCTS","groupBy":rtype_cfg["groupBy"],"columns":cols.split(","),"reportTypeId":rtype_cfg["reportTypeId"],"timeUnit":"SUMMARY","format":"GZIP_JSON"}}
+        
+        # 3. Create report — exponential backoff for 425/429, max 5 attempts
+        rid=None
+        backoff=10
+        for a in range(5):
+            rr=httpx.post(f"https://{host}/reporting/reports",headers=h,json=body,timeout=15)
+            if rr.status_code==200:
+                rid=rr.json()["reportId"]
+                break
+            if rr.status_code==429:
+                print(f"  [{store}/{market}/{rtype}] 429, backoff {backoff}s")
+                time.sleep(backoff);backoff*=2;continue
+            if rr.status_code==425:
+                try:rid=rr.json().get("reportId")
+                except:pass
+                if rid:
+                    print(f"  [{store}/{market}/{rtype}] 425, using existing report {rid}")
+                    break
+                print(f"  [{store}/{market}/{rtype}] 425, backoff {backoff}s")
+                time.sleep(backoff);backoff*=2;continue
+            return f"{store}/{market}/{rtype}: Create FAIL {rr.status_code}"
+        if not rid:
+            return f"{store}/{market}/{rtype}: Rate limited 5x"
+        
+        # 4. Poll with exponential backoff: 6, 12, 24, 48, 96, 120(capped) × 20 polls
+        poll_interval=6
+        max_polls=25 if region=="fe" else 30
+        for i in range(max_polls):
+            time.sleep(poll_interval)
+            rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
+            s=rp.json().get("status","NO_KEY")
+            if i==0 or i%5==0:
+                print(f"  [{store}/{market}/{rtype}] poll {i}: {s} (interval={poll_interval}s)")
+            if s=="COMPLETED":
+                raw=gzip.decompress(httpx.get(rp.json()["url"],timeout=60).content).decode()
+                rows=json.loads(raw)
+                if isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],list):rows=rows[0]
+                cost=sum(float(r2.get("cost",0)) for r2 in rows if isinstance(r2,dict))
+                sales=sum(float(r2.get("sales1d",0)) for r2 in rows if isinstance(r2,dict))
+                fx=FX_USD.get(market,1.0) or FX_USD.get("USD",1.0)
+                cost_usd=cost*fx;sales_usd=sales*fx
+                conn=psycopg2.connect(DSN)
+                cur=conn.cursor()
+                cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,rtype,yesterday,json.dumps(rows),cost_usd,sales_usd))
+                conn.commit();conn.close()
+                return f"{store}/{market}/{rtype}: {len(rows)} rows, $%.2f USD"%cost_usd
+            elif s=="FAILURE":
+                return f"{store}/{market}/{rtype}: Report FAILURE"
+            # Exponential backoff: double interval, cap at 120s
+            poll_interval=min(poll_interval*2,120)
+        return f"{store}/{market}/{rtype}: Timeout after {max_polls} polls"
+    finally:
+        _IN_FLIGHT.discard(flight_key)
+
+def pull_profile(store,snum,market,pid,region,yesterday,results):
+    """FE: parallel types. NA/EU: sequential types (kinder to the API)."""
+    if region=="fe":
+        threads=[]
+        def _pull(rtype,cfg):
+            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+            results.append(r);print(r,flush=True)
+        for rtype,cfg in REPORT_TYPES.items():
+            t=threading.Thread(target=_pull,args=(rtype,cfg));t.start();threads.append(t)
+        for t in threads:t.join()
+    else:
+        for rtype,cfg in REPORT_TYPES.items():
+            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+            results.append(r);print(r,flush=True)
+
+def run():
+    yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
+    print(f"Ingestion v3 — {yesterday}")
+    t0=time.time()
+    results=[];threads=[]
+    for store in STORES:
+        snum=STORES[store]
+        for market,pid,region in PROFILES[store]:
+            t=threading.Thread(target=pull_profile,args=(store,snum,market,pid,region,yesterday,results))
+            t.start();threads.append(t)
+    for t in threads:t.join()
+    total=len(results)
+    ok=sum(1 for r in results if "SKIP" not in r and "rows" in r)
+    print(f"Done. {total} tasks, {ok} stored in {int(time.time()-t0)}s")
+
 def load_env():
     env_path=os.path.join(os.path.dirname(__file__) or '.','..','.env')
     if os.path.exists(env_path):
         for l in open(env_path).read().splitlines():
             if l and '=' in l and not l.startswith('#'):k,v=l.split('=',1);os.environ[k.strip()]=v.strip()
-
-def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
-    cid=os.environ[f"STORE_{snum}_ADS_CLIENT_ID"];csec=os.environ[f"STORE_{snum}_ADS_CLIENT_SECRET"];ref=os.environ[f"STORE_{snum}_ADS_REFRESH_TOKEN"]
-    
-    # Auth with retry
-    for a in range(3):
-        r=httpx.post("https://api.amazon.com/auth/o2/token",json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref},timeout=10)
-        if r.status_code==200:break
-        time.sleep(5*(2**a))
-    else:return f"{store}/{market}/{rtype}: Auth FAIL"
-    
-    tk=r.json()["access_token"]
-    host=HOSTS[region]
-    h={"Authorization":f"Bearer {tk}","Amazon-Advertising-API-ClientId":cid,"Amazon-Advertising-API-Scope":pid,"Content-Type":"application/json"}
-    cols=rtype_cfg["columns"]
-    body={"startDate":yesterday,"endDate":yesterday,"configuration":{"adProduct":"SPONSORED_PRODUCTS","groupBy":rtype_cfg["groupBy"],"columns":cols.split(","),"reportTypeId":rtype_cfg["reportTypeId"],"timeUnit":"SUMMARY","format":"GZIP_JSON"}}
-    
-    # Create report with rate-limit retry
-    for a in range(5):
-        rr=httpx.post(f"https://{host}/reporting/reports",headers=h,json=body,timeout=15)
-        if rr.status_code==200:break
-        if rr.status_code==429:time.sleep(10*(2**a));continue
-        if rr.status_code==425:
-            # Duplicate report exists — use its ID
-            rid=rr.json().get("reportId") if rr.text else None
-            if rid:break
-            time.sleep(10*(2**a));continue
-        return f"{store}/{market}/{rtype}: Create FAIL {rr.status_code}"
-    else:return f"{store}/{market}/{rtype}: Rate limited 5x"
-    
-    rid=rr.json()["reportId"]
-    max_polls=100 if region=="na" or region=="eu" else 25  # NA can be slow
-    for i in range(max_polls):
-        time.sleep(6)
-        rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
-        s=rp.json().get("status","NO_KEY")
-        if i==0 or i%10==0:
-            print(f"  [{store}/{market}] poll {i}: {s}")
-        if s=="COMPLETED":
-            raw=gzip.decompress(httpx.get(rp.json()["url"],timeout=30).content).decode()
-            rows=json.loads(raw)
-            if isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],list):rows=rows[0]
-            cost=sum(float(r2.get("cost",0)) for r2 in rows if isinstance(r2,dict))
-            sales=sum(float(r2.get("sales1d",0)) for r2 in rows if isinstance(r2,dict))
-            fx=FX_USD.get(market,1.0) or FX_USD.get("USD",1.0)
-            cost_usd=cost*fx;sales_usd=sales*fx
-            conn=psycopg2.connect(DSN)
-            cur=conn.cursor()
-            cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,rtype,yesterday,json.dumps(rows),cost_usd,sales_usd))
-            conn.commit();conn.close()
-            return f"{store}/{market}/{rtype}: {len(rows)} rows, $%.2f USD"%cost_usd
-        elif s=="FAILURE":return f"{store}/{market}: Report FAILURE"
-    return f"{store}/{market}: Timeout"
-
-def pull_profile(store,snum,market,pid,region,yesterday,results):
-    """Pull all report types for one profile. FE: parallel, NA/EU: sequential."""
-    if region=="fe":
-        # FE is fast — parallel
-        threads=[]
-        def _pull_type(rtype,cfg):
-            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
-            results.append(r)
-            print(r,flush=True)
-        for rtype,cfg in REPORT_TYPES.items():
-            t=threading.Thread(target=_pull_type,args=(rtype,cfg))
-            t.start()
-            threads.append(t)
-        for t in threads:t.join()
-    else:
-        # NA/EU needs patience — sequential types
-        for rtype,cfg in REPORT_TYPES.items():
-            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
-            results.append(r)
-            print(r,flush=True)
-
-def run():
-    yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (FE parallel, NA/EU sequential types) — {yesterday}")
-    t0=time.time()
-    results=[]
-    threads=[]
-    for store in STORES:
-        snum=STORES[store]
-        for market,pid,region in PROFILES[store]:
-            t=threading.Thread(target=pull_profile,args=(store,snum,market,pid,region,yesterday,results))
-            t.start()
-            threads.append(t)
-    for t in threads:t.join()
-    print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
 
 if __name__=="__main__":
     load_env()
