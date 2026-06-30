@@ -51,12 +51,17 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
     for a in range(5):
         rr=httpx.post(f"https://{host}/reporting/reports",headers=h,json=body,timeout=15)
         if rr.status_code==200:break
-        if rr.status_code in (425,429):time.sleep(10*(2**a));continue
+        if rr.status_code==429:time.sleep(10*(2**a));continue
+        if rr.status_code==425:
+            # Duplicate report exists — use its ID
+            rid=rr.json().get("reportId") if rr.text else None
+            if rid:break
+            time.sleep(10*(2**a));continue
         return f"{store}/{market}/{rtype}: Create FAIL {rr.status_code}"
     else:return f"{store}/{market}/{rtype}: Rate limited 5x"
     
     rid=rr.json()["reportId"]
-    max_polls=60 if region=="na" or region=="eu" else 25  # NA can be slow
+    max_polls=100 if region=="na" or region=="eu" else 25  # NA can be slow
     for i in range(max_polls):
         time.sleep(6)
         rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
