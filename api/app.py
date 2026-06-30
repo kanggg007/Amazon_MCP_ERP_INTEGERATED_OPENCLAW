@@ -239,12 +239,18 @@ async def data_status():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM ads_daily")
         total=cur.fetchone()[0]
-        cur.execute("SELECT store, market, report_type, date, cost, sales, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 200")
+        # Count by market
+        cur.execute("SELECT market, COUNT(*) FROM ads_daily GROUP BY market ORDER BY market")
+        by_market=dict(cur.fetchall())
+        # Count by date
+        cur.execute("SELECT date, COUNT(*) FROM ads_daily GROUP BY date ORDER BY date")
+        by_date=dict(cur.fetchall())
+        cur.execute("SELECT store, market, report_type, date, cost, sales, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 500")
         rows = []
         for r in cur.fetchall():
             rows.append({"store":r[0],"market":r[1],"type":r[2],"date":str(r[3]),"cost":float(r[4]),"sales":float(r[5]),"pulled":str(r[6])})
         conn.close()
-        return {"status":"ok","db_total":total,"shown":len(rows),"rows":rows,"app_uptime": str(_dt.now())}
+        return {"status":"ok","db_total":total,"by_market":by_market,"by_date":{str(k):v for k,v in by_date.items()},"shown":len(rows),"rows":rows[:100],"app_uptime": str(_dt.now())}
     except Exception as e:
         return {"status":"error","message":str(e)[:200]}
 
