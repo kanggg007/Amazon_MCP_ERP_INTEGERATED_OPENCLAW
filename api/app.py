@@ -376,14 +376,16 @@ async def run_revenue(user_id: str = "master", date: str = None):
             report[key]["order_rev_usd"] += float(rev or 0) * fx
         
         print(f"Revenue Report — {date}", flush=True)
-        total_ads = total_orders = 0
+        total_ads = total_order_count = 0
         for key in sorted(report.keys()):
             d = report[key]
+            store, mkt = key.split("/")
             acos = d['ads_sales'] and (d['ads_cost']/d['ads_sales']*100) or 0
-            print(f"  {key}: Ads ${d['ads_cost']:.2f} | Orders {d['orders']} ${d['order_rev_usd']:,.2f} USD | ACOS {acos:.0f}%", flush=True)
+            cur = {"US":"USD","CA":"CAD","AU":"AUD","JP":"JPY","DE":"EUR"}.get(mkt,"?")
+            print(f"  {key}: Ads ${d['ads_cost']:.2f} USD | Orders {d['orders']} = {cur}{d['order_rev']:,.0f} | ACOS {acos:.0f}%", flush=True)
             total_ads += d['ads_cost']
-            total_orders += d['order_rev_usd']
-        print(f"  TOTAL: Ads ${total_ads:,.2f} | Orders ${total_orders:,.2f} USD", flush=True)
+            total_order_count += d['orders']
+        print(f"  TOTAL: Ads ${total_ads:,.2f} USD | {total_order_count} orders", flush=True)
         print(f"[REVENUE] Complete", flush=True)
     
     threading.Thread(target=_run, daemon=True).start()
