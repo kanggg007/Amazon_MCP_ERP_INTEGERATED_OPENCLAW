@@ -100,6 +100,8 @@ def pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, date):
             
             conn = psycopg2.connect(DSN)
             cur = conn.cursor()
+            # Dedup: delete old, insert new
+            cur.execute("DELETE FROM orders_daily WHERE store=%s AND market=%s AND date=%s",(name,mkt,date))
             cur.execute("INSERT INTO orders_daily (store, market, date, data, order_count, revenue, shipped, pending, canceled) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (name, mkt, date, json.dumps(orders), len(orders), total, shipped, pending, cancelled))
             conn.commit(); conn.close()
