@@ -175,24 +175,45 @@ async def scheduler_status():
 
 @app.get("/test/ads-poll")
 async def test_ads_poll():
-    """Direct test: create spCampaigns report for CUCZUUS US and poll 10 times, show raw responses."""
-    import os as _os, httpx
+    """Deep test: create NA report + poll 20 times, show raw API responses."""
+    import os as _os, httpx, time, asyncio
     cid=_os.environ['STORE_02_ADS_CLIENT_ID'];csec=_os.environ['STORE_02_ADS_CLIENT_SECRET'];ref=_os.environ['STORE_02_ADS_REFRESH_TOKEN']
     r=httpx.post('https://api.amazon.com/auth/o2/token',json={'grant_type':'refresh_token','client_id':cid,'client_secret':csec,'refresh_token':ref},timeout=10)
     tk=r.json()['access_token']
     h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':'3465892858543553','Content-Type':'application/json'}
-    body={'startDate':'2026-06-28','endDate':'2026-06-28','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':['cost'],'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
+    body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':['cost','campaignName','sales1d','clicks'],'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
+    
+    # Try create
     rr=httpx.post('https://advertising-api.amazon.com/reporting/reports',headers=h,json=body,timeout=15)
-    if rr.status_code!=200:return {"error":"Create failed","status":rr.status_code,"body":rr.text[:300]}
+    status=rr.status_code
+    if status==425:
+        rid=rr.json().get('reportId')
+        return {"note":"425 duplicate","report_id":rid,"status":status}
+    if status!=200:
+        return {"error":"Create failed","status":status,"body":rr.text[:500]}
     rid=rr.json()['reportId']
     polls=[]
-    for i in range(3):
-        import time,asyncio
-        await asyncio.sleep(5)
+    for i in range(20):
+        await asyncio.sleep(10)
         rp=httpx.get('https://advertising-api.amazon.com/reporting/reports/'+rid,headers=h,timeout=10)
         d=rp.json()
-        polls.append({'poll':i,'status':d.get('status','?'),'keys':list(d.keys())[:8],'status_code':rp.status_code})
-    return {"report_id":rid,"polls":polls}
+        s=d.get('status','?')
+        entry={'poll':i,'status':s,'code':rp.status_code}
+        if s=='COMPLETED':
+            url=d.get('url','')
+            entry['url']=url[:100]
+            # Try to download
+            try:
+                dl=httpx.get(url,timeout=30)
+                raw=gzip.decompress(dl.content).decode()
+                entry['rows']=len(json.loads(raw))
+                entry['download_ok']=True
+            except Exception as e:
+                entry['download_error']=str(e)[:200]
+            polls.append(entry)
+            break
+        polls.append(entry)
+    return {"report_id":rid,"status":status,"polls":polls}
 
 
 @app.get("/debug/ingest-log")
