@@ -200,8 +200,8 @@ async def test_ads_poll():
     result['report_id']=rid
     
     # Exponential backoff polling: 6,12,24,48,96,120...
-    interval=6;polls=[]
-    for i in range(30):
+    interval=3;polls=[]
+    for i in range(15):
         await asyncio.sleep(interval)
         rp=httpx.get(f'https://{host}/reporting/reports/{rid}',headers=h,timeout=10)
         d=rp.json()
