@@ -341,25 +341,26 @@ async def _startup_ingest():
     from pathlib import Path as _Path
     import os as _os, sys as _sys
     
-    today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    today = datetime.now(timezone(timedelta(hours=8)))
+    yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    today_str = today.strftime("%Y-%m-%d")
     
-    # Check if today's data exists in DB
+    # Check if yesterday's data exists — skip if >= 8 profiles already done
     try:
         import psycopg2
         dsn = _os.environ.get("DATABASE_URL", "")
         if dsn:
             conn = psycopg2.connect(dsn)
             cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM ads_daily WHERE date = %s", (today,))
-            count = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(DISTINCT store||market) FROM ads_daily WHERE date = %s", (yesterday,))
+            profiles = cur.fetchone()[0]
             conn.close()
-            if count > 0:
-                logger.info("Startup ingest: %d reports already exist for %s, skipping", count, today)
+            if profiles >= 8:
+                print(f"[STARTUP] {profiles} profiles have data for {yesterday}, skipping ingest", flush=True)
                 return
+            print(f"[STARTUP] Only {profiles}/13 profiles for {yesterday}, running ingest", flush=True)
     except Exception as e:
-        logger.warning("Startup ingest DB check failed: %s", e)
-    
-    logger.info("Startup ingest: running for %s", today)
+        print(f"[STARTUP] DB check failed: {e}, running ingest anyway", flush=True)
     BASE3 = _Path(__file__).parent.parent
     path = BASE3 / "engines" / "ads_quick_ingest.py"
     if path.exists():

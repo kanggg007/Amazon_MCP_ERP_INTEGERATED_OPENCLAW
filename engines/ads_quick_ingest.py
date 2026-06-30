@@ -92,8 +92,8 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
         if not rid:
             return f"{store}/{market}/{rtype}: Rate limited 5x"
         
-        # 4. Poll with exponential backoff: 6, 12, 24, 48, 96, 120(capped) × 20 polls
-        poll_interval=6
+        # 4. Poll with exponential backoff: 10, 20, 40, 80, 120(capped)
+        poll_interval=10
         max_polls=25 if region=="fe" else 30
         for i in range(max_polls):
             time.sleep(poll_interval)
@@ -124,6 +124,10 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
 
 def pull_profile(store,snum,market,pid,region,yesterday,results):
     """FE: parallel types. NA/EU: sequential types (kinder to the API)."""
+    # NA/EU: hard delay before touching the profile (Railway is too fast)
+    if region in ("na","eu"):
+        print(f"  [{store}/{market}] delay 30s (Railway too fast for NA/EU)",flush=True)
+        time.sleep(30)
     if region=="fe":
         threads=[]
         def _pull(rtype,cfg):
