@@ -56,7 +56,7 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
     else:return f"{store}/{market}/{rtype}: Rate limited 5x"
     
     rid=rr.json()["reportId"]
-    max_polls=40 if region=="na" else 25  # NA can be slow
+    max_polls=60 if region=="na" or region=="eu" else 25  # NA can be slow
     for i in range(max_polls):
         time.sleep(6)
         rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
@@ -80,27 +80,39 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
     return f"{store}/{market}: Timeout"
 
 def pull_profile(store,snum,market,pid,region,yesterday,results):
-    """Pull all report types for one profile IN PARALLEL."""
-    threads=[]
-    def _pull_type(rtype,cfg):
-        r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
-        results.append(r)
-        print(r,flush=True)
-    for rtype,cfg in REPORT_TYPES.items():
-        t=threading.Thread(target=_pull_type,args=(rtype,cfg))
-        t.start()
-        threads.append(t)
-    for t in threads:t.join()
+    """Pull all report types for one profile. FE: parallel, NA/EU: sequential."""
+    if region=="fe":
+        # FE is fast — parallel
+        threads=[]
+        def _pull_type(rtype,cfg):
+            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+            results.append(r)
+            print(r,flush=True)
+        for rtype,cfg in REPORT_TYPES.items():
+            t=threading.Thread(target=_pull_type,args=(rtype,cfg))
+            t.start()
+            threads.append(t)
+        for t in threads:t.join()
+    else:
+        # NA/EU needs patience — sequential types
+        for rtype,cfg in REPORT_TYPES.items():
+            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+            results.append(r)
+            print(r,flush=True)
 
 def run():
     yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (5 types parallel per profile) — {yesterday}")
+    print(f"Ingestion (FE parallel, NA/EU sequential types) — {yesterday}")
     t0=time.time()
     results=[]
+    threads=[]
     for store in STORES:
         snum=STORES[store]
         for market,pid,region in PROFILES[store]:
-            pull_profile(store,snum,market,pid,region,yesterday,results)
+            t=threading.Thread(target=pull_profile,args=(store,snum,market,pid,region,yesterday,results))
+            t.start()
+            threads.append(t)
+    for t in threads:t.join()
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
 
 if __name__=="__main__":
