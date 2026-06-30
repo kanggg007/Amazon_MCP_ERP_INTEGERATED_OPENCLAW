@@ -51,8 +51,9 @@ def pull_one(store,snum,market,pid,region,yesterday):
     for i in range(max_polls):
         time.sleep(6)
         rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
-        s=rp.json()["status"]
-        if s=="COMPLETED":
+        s=rp.json().get("status","NO_KEY")
+        if i%10==0 or s not in ("PENDING",):
+            return f"{store}/{market}: [{i}] status={s}" # Debug: show status
             raw=gzip.decompress(httpx.get(rp.json()["url"],timeout=30).content).decode()
             rows=json.loads(raw)
             if isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],list):rows=rows[0]
