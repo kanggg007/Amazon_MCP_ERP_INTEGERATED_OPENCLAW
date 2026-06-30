@@ -92,9 +92,9 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
         if not rid:
             return f"{store}/{market}/{rtype}: Rate limited 5x"
         
-        # 4. Poll with exponential backoff: 10, 20, 40, 80, 120(capped)
+        # 4. Poll: 10, 20, 30, 30, 30... (cap 30s, 15 polls max)
         poll_interval=10
-        max_polls=25 if region=="fe" else 30
+        max_polls=25 if region=="fe" else 15
         for i in range(max_polls):
             time.sleep(poll_interval)
             rp=httpx.get(f"https://{host}/reporting/reports/{rid}",headers=h,timeout=10)
@@ -117,7 +117,7 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
             elif s=="FAILURE":
                 return f"{store}/{market}/{rtype}: Report FAILURE"
             # Exponential backoff: double interval, cap at 120s
-            poll_interval=min(poll_interval*2,120)
+            poll_interval=min(poll_interval*2,30)
         return f"{store}/{market}/{rtype}: Timeout after {max_polls} polls"
     finally:
         _IN_FLIGHT.discard(flight_key)
