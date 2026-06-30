@@ -228,6 +228,23 @@ async def ingest_log():
         return {"log": "No log yet"}
 
 
+@app.get("/admin/db-check")
+async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
+    """Direct DB check for specific row."""
+    import psycopg2, os as _os
+    dsn=_os.environ.get("DATABASE_URL","")
+    conn=psycopg2.connect(dsn)
+    cur=conn.cursor()
+    cur.execute("SELECT * FROM ads_daily WHERE store=%s AND market=%s AND report_type=%s AND date=%s",(store,market,rtype,date))
+    rows=cur.fetchall()
+    # Also count total by market
+    cur.execute("SELECT market, COUNT(*) FROM ads_daily WHERE date=%s GROUP BY market",(date,))
+    by_market=dict(cur.fetchall())
+    cur.execute("SELECT date, market, COUNT(*) FROM ads_daily GROUP BY date, market ORDER BY date, market")
+    all_markets=cur.fetchall()
+    conn.close()
+    return {"query":{"store":store,"market":market,"type":rtype,"date":date},"found":len(rows),"by_market_for_date":by_market,"all_dates_markets":[[str(d),m,c] for d,m,c in all_markets]}
+
 @app.get("/admin/data-status")
 async def data_status():
     """Check data + scheduler health."""
