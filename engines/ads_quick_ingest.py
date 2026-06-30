@@ -94,18 +94,21 @@ def pull_profile(store,snum,market,pid,region,yesterday,results):
 
 def run():
     yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (ALL in parallel) — {yesterday}")
+    print(f"Ingestion (by type) — {yesterday}")
     t0=time.time()
     results=[]
-    # All stores pull all profiles+types in parallel
-    threads=[]
-    for store in STORES:
-        snum=STORES[store]
-        for market,pid,region in PROFILES[store]:
-            t=threading.Thread(target=pull_profile,args=(store,snum,market,pid,region,yesterday,results))
-            t.start()
-            threads.append(t)
-    for t in threads:t.join()
+    # Pull one report type at a time across all profiles in parallel
+    for rtype,cfg in REPORT_TYPES.items():
+        print(f"  Type: {rtype}")
+        threads=[]
+        for store in STORES:
+            snum=STORES[store]
+            for market,pid,region in PROFILES[store]:
+                t=threading.Thread(target=lambda s=store,n=snum,m=market,p=pid,r=region,rt=rtype,c=cfg: results.append(pull_one(s,n,m,p,r,rt,c,yesterday)))
+                t.start()
+                threads.append(t)
+        for t in threads:t.join()
+        print(f"  {rtype}: {len([r for r in results[-13:]])} profiles done")
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
 
 if __name__=="__main__":
