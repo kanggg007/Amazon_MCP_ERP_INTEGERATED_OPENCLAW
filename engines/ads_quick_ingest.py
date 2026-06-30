@@ -73,9 +73,9 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
             cost_usd=cost*fx;sales_usd=sales*fx
             conn=psycopg2.connect(DSN)
             cur=conn.cursor()
-            cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,"sp_campaigns",yesterday,json.dumps(rows),cost_usd,sales_usd))
+            cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,rtype,yesterday,json.dumps(rows),cost_usd,sales_usd))
             conn.commit();conn.close()
-            return f"{store}/{market}: {len(rows)} rows, $%.2f USD"%cost_usd
+            return f"{store}/{market}/{rtype}: {len(rows)} rows, $%.2f USD"%cost_usd
         elif s=="FAILURE":return f"{store}/{market}: Report FAILURE"
     return f"{store}/{market}: Timeout"
 
@@ -94,16 +94,13 @@ def pull_profile(store,snum,market,pid,region,yesterday,results):
 
 def run():
     yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (sequential) — {yesterday}")
+    print(f"Ingestion (5 types parallel per profile) — {yesterday}")
     t0=time.time()
     results=[]
     for store in STORES:
         snum=STORES[store]
         for market,pid,region in PROFILES[store]:
-            for rtype,cfg in REPORT_TYPES.items():
-                r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
-                results.append(r)
-                print(r,flush=True)
+            pull_profile(store,snum,market,pid,region,yesterday,results)
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
 
 if __name__=="__main__":
