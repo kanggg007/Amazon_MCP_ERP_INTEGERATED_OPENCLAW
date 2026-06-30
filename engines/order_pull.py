@@ -107,27 +107,27 @@ def pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, date):
     return "Timeout"
 
 def run():
+    import threading
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Order Pull (Reports API) — {yesterday}")
+    print(f"Order Pull (parallel) — {yesterday}")
     t0 = time.time()
-    results=[]
-    # NA: US + CA for all 3 stores
+    results=[];threads=[]
+    def _go(name, cid, csec_key, ref_key, mkt, mkt_id):
+        r=pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, yesterday)
+        results.append(f"{name}/{mkt}: {r}");print(f"  {name}/{mkt}: {r}",flush=True)
+    # NA: US+CA all 3 stores = 6 threads
     for name, (cid, csec_key, ref_key) in STORES.items():
         for mkt, mkt_id in MARKETS.items():
-            result = pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, yesterday)
-            results.append(f"{name}/{mkt}: {result}")
-    # FE: AU + JP per store
+            t=threading.Thread(target=_go,args=(name,cid,csec_key,ref_key,mkt,mkt_id));t.start();threads.append(t)
+    # FE: AU+JP for CUCZUUS+BOOLUU = 4 threads
     for name, mkts in FE_STORES.items():
         for mkt, (cid, csec_key, ref_key) in mkts.items():
-            result = pull_orders(name, cid, csec_key, ref_key, mkt, FE_MARKETS[mkt], yesterday)
-            results.append(f"{name}/{mkt}: {result}")
-    # EU: DE
-    for name in ["CUCZUUS","Heliumx"]:
-        cid,csec_key,ref_key = EU_STORES[name]
-        result = pull_orders(name, cid, csec_key, ref_key, "DE", EU_MARKETS["DE"], yesterday)
-        results.append(f"{name}/DE: {result}")
-    for r in results: print(f"  {r}")
-    print(f"Done in {int(time.time()-t0)}s")
+            t=threading.Thread(target=_go,args=(name,cid,csec_key,ref_key,mkt,FE_MARKETS[mkt]));t.start();threads.append(t)
+    # EU: DE for CUCZUUS+Heliumx = 2 threads
+    for name, (cid, csec_key, ref_key) in EU_STORES.items():
+        t=threading.Thread(target=_go,args=(name,cid,csec_key,ref_key,"DE",EU_MARKETS["DE"]));t.start();threads.append(t)
+    for t in threads:t.join()
+    print(f"Done. {len(results)} markets in {int(time.time()-t0)}s")
 
 if __name__ == "__main__":
     load_env()
