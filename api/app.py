@@ -247,6 +247,22 @@ async def ingest_log():
         return {"log": "No log yet"}
 
 
+@app.get("/admin/cleanup-ads")
+async def cleanup_ads():
+    """Remove duplicate ad rows, keep latest per (store,market,type,date)."""
+    import psycopg2, os as _os
+    dsn=_os.environ.get("DATABASE_URL","")
+    conn=psycopg2.connect(dsn);cur=conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM ads_daily")
+    before=cur.fetchone()[0]
+    cur.execute("""DELETE FROM ads_daily WHERE id NOT IN (
+        SELECT MAX(id) FROM ads_daily GROUP BY store, market, report_type, date
+    )""")
+    deleted=cur.rowcount;conn.commit()
+    cur.execute("SELECT COUNT(*) FROM ads_daily")
+    after=cur.fetchone()[0];conn.close()
+    return {"status":"ok","before":before,"deleted":deleted,"after":after}
+
 @app.get("/admin/db-check")
 async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
     """Direct DB check for specific row."""

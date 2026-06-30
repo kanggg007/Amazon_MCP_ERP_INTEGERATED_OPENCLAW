@@ -111,6 +111,7 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
                 cost_usd=cost*fx;sales_usd=sales*fx
                 conn=psycopg2.connect(DSN)
                 cur=conn.cursor()
+                cur.execute("DELETE FROM ads_daily WHERE store=%s AND market=%s AND report_type=%s AND date=%s",(store,market,rtype,yesterday))
                 cur.execute("INSERT INTO ads_daily (store,market,report_type,date,data,cost,sales) VALUES (%s,%s,%s,%s,%s,%s,%s)",(store,market,rtype,yesterday,json.dumps(rows),cost_usd,sales_usd))
                 conn.commit();conn.close()
                 return f"{store}/{market}/{rtype}: {len(rows)} rows, $%.2f USD"%cost_usd
