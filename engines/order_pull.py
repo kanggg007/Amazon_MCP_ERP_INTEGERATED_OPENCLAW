@@ -43,6 +43,8 @@ def init_db():
     conn.commit()
     conn.close()
 
+SP_HOSTS={"US":"sellingpartnerapi-na.amazon.com","CA":"sellingpartnerapi-na.amazon.com","AU":"sellingpartnerapi-fe.amazon.com","JP":"sellingpartnerapi-fe.amazon.com","DE":"sellingpartnerapi-eu.amazon.com"}
+
 def pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, date):
     csec = os.environ[csec_key]; ref = os.environ[ref_key]
     r = httpx.post("https://api.amazon.com/auth/o2/token",
@@ -50,7 +52,7 @@ def pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, date):
     if r.status_code != 200: return f"Auth FAIL {r.status_code}"
     tk = r.json()["access_token"]
     
-    host = "sellingpartnerapi-na.amazon.com"
+    host = SP_HOSTS.get(mkt, "sellingpartnerapi-na.amazon.com")
     h = {"x-amz-access-token": tk, "Content-Type": "application/json"}
     
     # Create Reports API order report
