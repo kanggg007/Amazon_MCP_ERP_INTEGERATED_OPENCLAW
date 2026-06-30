@@ -364,12 +364,20 @@ async def _startup_ingest():
     BASE3 = _Path(__file__).parent.parent
     path = BASE3 / "engines" / "ads_quick_ingest.py"
     if path.exists():
-        cmd = f"{_sys.executable} {path}"
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: _os.popen(cmd).read())
-        logger.info("Startup ingest done: %s", result[:300] if result else 'no output')
+        import sys as _sys2, threading
+        _sys2.path.insert(0, str(BASE3))
+        print(f"[STARTUP] Running ingestion INLINE", flush=True)
+        def _run_inline():
+            try:
+                from engines.ads_quick_ingest import run
+                run()
+                print(f"[INGEST] Complete", flush=True)
+            except Exception as e:
+                print(f"[INGEST] ERROR: {e}", flush=True)
+                import traceback;traceback.print_exc()
+        threading.Thread(target=_run_inline, daemon=True).start()
     else:
-        logger.error("Startup ingest: script not found at %s", path)
+        print(f"[STARTUP] Ingest script not found at {path}", flush=True)
 
 
 @app.get("/test/deepseek")
@@ -1482,21 +1490,8 @@ async def startup():
     import asyncio as _asyncio
     _asyncio.create_task(_run_scheduler())
     
-    # Run ingestion INSIDE the app — no subprocess, no Popen
-    import threading as _th
-    print(f"[STARTUP] Running ingestion INLINE", flush=True)
-    def _run_inline():
-        try:
-            import sys as _s
-            _s.path.insert(0, str(Path(__file__).parent.parent))
-            from engines.ads_quick_ingest import run
-            run()
-            print(f"[INGEST] Complete", flush=True)
-        except Exception as e:
-            print(f"[INGEST] ERROR: {e}", flush=True)
-            import traceback
-            traceback.print_exc()
-    _th.Thread(target=_run_inline, daemon=True).start()
+    # Run ingestion check (skips if enough data exists)
+    _asyncio.create_task(_startup_ingest())
     
     try:
         from auth import get_store_registry
