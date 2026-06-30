@@ -175,45 +175,41 @@ async def scheduler_status():
 
 @app.get("/test/ads-poll")
 async def test_ads_poll():
-    """Deep test: create NA report + poll 20 times, show raw API responses."""
-    import os as _os, httpx, time, asyncio
+    """Minimal NA report test — just 1 column, no groupBy"""
+    import os as _os, httpx, time, asyncio, gzip, json
     cid=_os.environ['STORE_02_ADS_CLIENT_ID'];csec=_os.environ['STORE_02_ADS_CLIENT_SECRET'];ref=_os.environ['STORE_02_ADS_REFRESH_TOKEN']
     r=httpx.post('https://api.amazon.com/auth/o2/token',json={'grant_type':'refresh_token','client_id':cid,'client_secret':csec,'refresh_token':ref},timeout=10)
     tk=r.json()['access_token']
-    h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':'3465892858543553','Content-Type':'application/json'}
-    body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':['cost','campaignName','sales1d','clicks'],'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
+    pid='3465892858543553'
+    h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':pid,'Content-Type':'application/json'}
     
-    # Try create
-    rr=httpx.post('https://advertising-api.amazon.com/reporting/reports',headers=h,json=body,timeout=15)
-    status=rr.status_code
-    if status==425:
-        rid=rr.json().get('reportId')
-        return {"note":"425 duplicate","report_id":rid,"status":status}
-    if status!=200:
-        return {"error":"Create failed","status":status,"body":rr.text[:500]}
-    rid=rr.json()['reportId']
-    polls=[]
-    for i in range(20):
-        await asyncio.sleep(10)
-        rp=httpx.get('https://advertising-api.amazon.com/reporting/reports/'+rid,headers=h,timeout=10)
-        d=rp.json()
-        s=d.get('status','?')
-        entry={'poll':i,'status':s,'code':rp.status_code}
-        if s=='COMPLETED':
-            url=d.get('url','')
-            entry['url']=url[:100]
-            # Try to download
-            try:
-                dl=httpx.get(url,timeout=30)
-                raw=gzip.decompress(dl.content).decode()
-                entry['rows']=len(json.loads(raw))
-                entry['download_ok']=True
-            except Exception as e:
-                entry['download_error']=str(e)[:200]
-            polls.append(entry)
-            break
-        polls.append(entry)
-    return {"report_id":rid,"status":status,"polls":polls}
+    results={}
+    for name,host in [("NA","advertising-api.amazon.com"),("FE","advertising-api-fe.amazon.com"),("EU","advertising-api-eu.amazon.com")]:
+        body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
+        rr=httpx.post(f'https://{host}/reporting/reports',headers=h,json=body,timeout=15)
+        if rr.status_code not in (200,425):
+            results[name]={"error":f"Create: {rr.status_code}","body":rr.text[:200]}
+            continue
+        rid=rr.json().get('reportId') if rr.status_code==200 else None
+        if not rid:
+            results[name]={"error":"425 no reportId","body":rr.text[:200]}
+            continue
+        for i in range(30):
+            await asyncio.sleep(6)
+            rp=httpx.get(f'https://{host}/reporting/reports/{rid}',headers=h,timeout=10)
+            s=rp.json().get('status','?')
+            if s in ('COMPLETED','FAILURE'):
+                if s=='COMPLETED':
+                    dl=httpx.get(rp.json()['url'],timeout=30)
+                    raw=gzip.decompress(dl.content).decode()
+                    data=json.loads(raw)
+                    results[name]={"polls":i+1,"status":"COMPLETED","rows":len(data) if isinstance(data,list) else str(type(data))[:50]}
+                else:
+                    results[name]={"polls":i+1,"status":"FAILURE"}
+                break
+        if name not in results:
+            results[name]={"polls":30,"status":"TIMEOUT"}
+    return results
 
 
 @app.get("/debug/ingest-log")
