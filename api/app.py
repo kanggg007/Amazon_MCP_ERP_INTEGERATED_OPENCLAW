@@ -175,47 +175,58 @@ async def scheduler_status():
 
 @app.get("/test/ads-poll")
 async def test_ads_poll():
-    """Test NA vs FE vs EU with minimal config and correct profiles"""
+    """Clean single test: CUCZUUS US sp_campaigns with marketplace filter"""
     import os as _os, httpx, time, asyncio, gzip, json
     cid=_os.environ['STORE_02_ADS_CLIENT_ID'];csec=_os.environ['STORE_02_ADS_CLIENT_SECRET'];ref=_os.environ['STORE_02_ADS_REFRESH_TOKEN']
-    r=httpx.post('https://api.amazon.com/auth/o2/token',json={'grant_type':'refresh_token','client_id':cid,'client_secret':csec,'refresh_token':ref},timeout=10)
+    r=httpx.post('https://api.amazon.com/auth/o2/token',json={'grant_type':'refresh_token','client_id':cid,'client_secret':csec,'refresh_token':ref},timeout=15)
     tk=r.json()['access_token']
+    pid='3465892858543553';host='advertising-api.amazon.com'
+    h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':pid,'Content-Type':'application/json'}
     
-    tests={
-        "NA/US":("advertising-api.amazon.com","3465892858543553"),
-        "FE/AU":("advertising-api-fe.amazon.com","3457387109813217"),
-        "EU/DE":("advertising-api-eu.amazon.com","2148844609196157"),
-    }
+    cols='cost,campaignName,campaignStatus,campaignMarketplaceId,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy'
+    body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':cols.split(','),'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
     
-    results={}
-    for name,(host,pid) in tests.items():
-        h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':pid,'Content-Type':'application/json'}
-        body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':['cost'],'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
-        rr=httpx.post(f'https://{host}/reporting/reports',headers=h,json=body,timeout=15)
-        if rr.status_code not in (200,425):
-            results[name]={"error":f"Create: {rr.status_code}","body":rr.text[:200]}
-            continue
-        rid=rr.json().get('reportId')
-        if not rid:
-            results[name]={"error":f"{rr.status_code} no reportId","body":rr.text[:200]}
-            continue
-        results[name]={"status":rr.status_code}
-        for i in range(30):
-            await asyncio.sleep(6)
-            rp=httpx.get(f'https://{host}/reporting/reports/{rid}',headers=h,timeout=10)
-            s=rp.json().get('status','?')
-            if s in ('COMPLETED','FAILURE'):
-                if s=='COMPLETED':
-                    dl=httpx.get(rp.json()['url'],timeout=30)
-                    raw=gzip.decompress(dl.content).decode()
-                    data=json.loads(raw)
-                    results[name].update({"polls":i+1,"result":"COMPLETED","rows":len(data) if isinstance(data,list) else 0})
-                else:
-                    results[name].update({"polls":i+1,"result":"FAILURE"})
-                break
-        if 'result' not in results[name]:
-            results[name]["result"]="TIMEOUT"
-    return results
+    # Create report
+    rr=httpx.post(f'https://{host}/reporting/reports',headers=h,json=body,timeout=15)
+    sc=rr.status_code
+    result={'create_status':sc}
+    if sc==425:
+        result['note']='425 duplicate';result['body_preview']=rr.text[:300]
+    elif sc!=200:
+        result['error']=rr.text[:300];return result
+    
+    rid=rr.json().get('reportId') if sc in (200,425) else None
+    if not rid:result['error']='no reportId';return result
+    result['report_id']=rid
+    
+    # Exponential backoff polling: 6,12,24,48,96,120...
+    interval=6;polls=[]
+    for i in range(30):
+        await asyncio.sleep(interval)
+        rp=httpx.get(f'https://{host}/reporting/reports/{rid}',headers=h,timeout=10)
+        d=rp.json()
+        s=d.get('status','?')
+        polls.append({'poll':i,'status':s,'interval':interval})
+        if s=='COMPLETED':
+            url=d['url']
+            raw=gzip.decompress(httpx.get(url,timeout=60).content).decode()
+            data=json.loads(raw)
+            rows=data if isinstance(data,list) else (data[0] if isinstance(data[0],list) else [])
+            # Show marketplace breakdown
+            markets={}
+            for r2 in rows:
+                if isinstance(r2,dict):
+                    mid=r2.get('campaignMarketplaceId','unknown')
+                    markets[mid]=markets.get(mid,0)+1
+            result['completed']=True;result['total_rows']=len(rows);result['markets']=markets;result['polls']=polls
+            # Filter US only
+            us_rows=[r2 for r2 in rows if isinstance(r2,dict) and r2.get('campaignMarketplaceId')=='ATVPDKIKX0DER']
+            result['us_rows']=len(us_rows);result['us_cost']=sum(float(r2.get('cost',0)) for r2 in us_rows)
+            return result
+        elif s=='FAILURE':
+            result['failed']=True;result['polls']=polls;return result
+        interval=min(interval*2,120)
+    result['timeout']=True;result['polls']=polls;return result
 
 
 @app.get("/debug/ingest-log")
