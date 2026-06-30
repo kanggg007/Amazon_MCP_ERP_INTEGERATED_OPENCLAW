@@ -10,7 +10,19 @@ STORES = {
     "Heliumx": ("amzn1.application-oa2-client.0d409ad3f84342eaace0e9d516f738e8", "STORE_04_LWA_CLIENT_SECRET", "STORE_04_REFRESH_TOKEN_AMERICAS"),
 }
 
-MARKETS = {"US": "ATVPDKIKX0DER", "CA": "A2EUQ1WTGCTBG2"}
+MARKETS = {"US":"ATVPDKIKX0DER","CA":"A2EUQ1WTGCTBG2"}
+FE_MARKETS = {"AU":"A39IBJ37TRP1C6","JP":"A1VC38T7YXB528"}
+EU_MARKETS = {"DE":"A1PA6795UKMFR9"}
+
+FE_STORES = {
+    "CUCZUUS":("amzn1.application-oa2-client.d8c93b864fef439886163fd321bb7cd2","STORE_02_LWA_CLIENT_SECRET","STORE_02_REFRESH_TOKEN_FE"),
+    "BOOLUU":("amzn1.application-oa2-client.12b8db78749c4dd1b4235c4df915dfd0","STORE_03_LWA_CLIENT_SECRET","STORE_03_REFRESH_TOKEN_FE"),
+    "Heliumx":("amzn1.application-oa2-client.0d409ad3f84342eaace0e9d516f738e8","STORE_04_LWA_CLIENT_SECRET","STORE_04_REFRESH_TOKEN_FE"),
+}
+EU_STORES = {
+    "CUCZUUS":("amzn1.application-oa2-client.d8c93b864fef439886163fd321bb7cd2","STORE_02_LWA_CLIENT_SECRET","STORE_02_REFRESH_TOKEN_EU"),
+    "Heliumx":("amzn1.application-oa2-client.0d409ad3f84342eaace0e9d516f738e8","STORE_04_LWA_CLIENT_SECRET","STORE_04_REFRESH_TOKEN_EU"),
+}
 
 def load_env():
     for line in open(os.path.join(os.path.dirname(__file__) or '.', '..', '.env')).read().splitlines():
@@ -95,12 +107,29 @@ def run():
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Order Pull (Reports API) — {yesterday}")
     t0 = time.time()
-    
+    results=[]
+    # NA: US + CA for all 3 stores
     for name, (cid, csec_key, ref_key) in STORES.items():
         for mkt, mkt_id in MARKETS.items():
             result = pull_orders(name, cid, csec_key, ref_key, mkt, mkt_id, yesterday)
-            print(f"  {name}/{mkt}: {result}")
-    
+            results.append(f"{name}/{mkt}: {result}")
+    # FE: AU + JP (BOOLUU has JP, Heliumx has AU)
+    for name in ["CUCZUUS","BOOLUU"]:
+        cid,csec_key,ref_key = FE_STORES[name]
+        for mkt in ["AU","JP"]:
+            result = pull_orders(name, cid, csec_key, ref_key, mkt, FE_MARKETS[mkt], yesterday)
+            results.append(f"{name}/{mkt}: {result}")
+    # Heliumx AU only (via FE)
+    if "Heliumx" in FE_STORES:
+        cid,csec_key,ref_key = FE_STORES["Heliumx"]
+        result = pull_orders("Heliumx", cid, csec_key, ref_key, "AU", FE_MARKETS["AU"], yesterday)
+        results.append(f"Heliumx/AU: {result}")
+    # EU: DE
+    for name in ["CUCZUUS","Heliumx"]:
+        cid,csec_key,ref_key = EU_STORES[name]
+        result = pull_orders(name, cid, csec_key, ref_key, "DE", EU_MARKETS["DE"], yesterday)
+        results.append(f"{name}/DE: {result}")
+    for r in results: print(f"  {r}")
     print(f"Done in {int(time.time()-t0)}s")
 
 if __name__ == "__main__":

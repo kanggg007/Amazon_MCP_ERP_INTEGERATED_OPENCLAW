@@ -315,6 +315,25 @@ async def run_ingestion(user_id: str = "master"):
     return {"status": "started", "message": "Ingestion running (direct import) — 13 profiles, ~20 min"}
 
 
+@app.post("/admin/run-orders")
+async def run_orders(user_id: str = "master"):
+    """Pull orders from SP-API Reports API."""
+    import asyncio, threading, sys as _sys2
+    from pathlib import Path as _Path
+    BASE3 = _Path(__file__).parent.parent
+    print(f"[ORDERS] Starting SP-API order pull", flush=True)
+    def _run():
+        try:
+            _sys2.path.insert(0, str(BASE3))
+            from engines.order_pull import load_env, init_db, run
+            load_env();init_db();run()
+            print(f"[ORDERS] Complete", flush=True)
+        except Exception as e:
+            print(f"[ORDERS] ERROR: {e}", flush=True)
+            import traceback;traceback.print_exc()
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "message": "Order pull running"}
+
 @app.post("/admin/run-revenue")
 async def run_revenue(user_id: str = "master"):
     """Trigger daily revenue report."""
