@@ -7,6 +7,14 @@ FX_USD={"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95}
 HOSTS={"na":"advertising-api.amazon.com","fe":"advertising-api-fe.amazon.com","eu":"advertising-api-eu.amazon.com"}
 COLUMNS="cost,campaignName,campaignStatus,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy"
 
+REPORT_TYPES={
+    "sp_campaigns":{"reportTypeId":"spCampaigns","groupBy":["campaign"],"columns":"cost,campaignName,campaignStatus,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy"},
+    "sp_search_terms":{"reportTypeId":"spSearchTerm","groupBy":["searchTerm"],"columns":"searchTerm,keyword,matchType,cost,clicks,impressions,sales1d,campaignName"},
+    "sp_targeting":{"reportTypeId":"spTargeting","groupBy":["targeting"],"columns":"keyword,matchType,cost,clicks,impressions,sales1d,campaignName"},
+    "sp_advertised_product":{"reportTypeId":"spAdvertisedProduct","groupBy":["advertiser"],"columns":"advertisedAsin,advertisedSku,cost,clicks,impressions,sales1d"},
+    "sp_purchased_product":{"reportTypeId":"spPurchasedProduct","groupBy":["asin"],"columns":"purchasedAsin,advertisedAsin,advertisedSku,sales1d,sales7d,sales30d,purchases1d,purchases7d,purchases30d,campaignName"},
+}
+
 STORES={
     "CUCZUUS":"02","BOOLUU":"03","Heliumx":"04"
 }
@@ -23,7 +31,7 @@ def load_env():
         for l in open(env_path).read().splitlines():
             if l and '=' in l and not l.startswith('#'):k,v=l.split('=',1);os.environ[k.strip()]=v.strip()
 
-def pull_one(store,snum,market,pid,region,yesterday):
+def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
     cid=os.environ[f"STORE_{snum}_ADS_CLIENT_ID"];csec=os.environ[f"STORE_{snum}_ADS_CLIENT_SECRET"];ref=os.environ[f"STORE_{snum}_ADS_REFRESH_TOKEN"]
     
     # Auth with retry
@@ -31,20 +39,21 @@ def pull_one(store,snum,market,pid,region,yesterday):
         r=httpx.post("https://api.amazon.com/auth/o2/token",json={"grant_type":"refresh_token","client_id":cid,"client_secret":csec,"refresh_token":ref},timeout=10)
         if r.status_code==200:break
         time.sleep(5*(2**a))
-    else:return f"{store}/{market}: Auth FAIL"
+    else:return f"{store}/{market}/{rtype}: Auth FAIL"
     
     tk=r.json()["access_token"]
     host=HOSTS[region]
     h={"Authorization":f"Bearer {tk}","Amazon-Advertising-API-ClientId":cid,"Amazon-Advertising-API-Scope":pid,"Content-Type":"application/json"}
-    body={"startDate":yesterday,"endDate":yesterday,"configuration":{"adProduct":"SPONSORED_PRODUCTS","groupBy":["campaign"],"columns":COLUMNS.split(","),"reportTypeId":"spCampaigns","timeUnit":"SUMMARY","format":"GZIP_JSON"}}
+    cols=rtype_cfg["columns"]
+    body={"startDate":yesterday,"endDate":yesterday,"configuration":{"adProduct":"SPONSORED_PRODUCTS","groupBy":rtype_cfg["groupBy"],"columns":cols.split(","),"reportTypeId":rtype_cfg["reportTypeId"],"timeUnit":"SUMMARY","format":"GZIP_JSON"}}
     
     # Create report with rate-limit retry
     for a in range(5):
         rr=httpx.post(f"https://{host}/reporting/reports",headers=h,json=body,timeout=15)
         if rr.status_code==200:break
         if rr.status_code in (425,429):time.sleep(10*(2**a));continue
-        return f"{store}/{market}: Create FAIL {rr.status_code}"
-    else:return f"{store}/{market}: Rate limited 5x"
+        return f"{store}/{market}/{rtype}: Create FAIL {rr.status_code}"
+    else:return f"{store}/{market}/{rtype}: Rate limited 5x"
     
     rid=rr.json()["reportId"]
     max_polls=40 if region=="na" else 25  # NA can be slow
@@ -70,23 +79,29 @@ def pull_one(store,snum,market,pid,region,yesterday):
         elif s=="FAILURE":return f"{store}/{market}: Report FAILURE"
     return f"{store}/{market}: Timeout"
 
-def pull_store(store,results):
-    snum=STORES[store]
-    yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    profiles=PROFILES[store]
-    for market,pid,region in profiles:
-        r=pull_one(store,snum,market,pid,region,yesterday)
+def pull_profile(store,snum,market,pid,region,yesterday,results):
+    """Pull all report types for one profile IN PARALLEL."""
+    threads=[]
+    def _pull_type(rtype,cfg):
+        r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
         results.append(r)
         print(r,flush=True)
-        time.sleep(2)
+    for rtype,cfg in REPORT_TYPES.items():
+        t=threading.Thread(target=_pull_type,args=(rtype,cfg))
+        t.start()
+        threads.append(t)
+    for t in threads:t.join()
 
 def run():
     yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (sequential) — {yesterday}")
+    print(f"Ingestion (parallel per profile) — {yesterday}")
     t0=time.time()
     results=[]
     for store in STORES:
-        pull_store(store,results)
+        snum=STORES[store]
+        profiles=PROFILES[store]
+        for market,pid,region in profiles:
+            pull_profile(store,snum,market,pid,region,yesterday,results)
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
 
 if __name__=="__main__":
