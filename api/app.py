@@ -175,25 +175,31 @@ async def scheduler_status():
 
 @app.get("/test/ads-poll")
 async def test_ads_poll():
-    """Minimal NA report test — just 1 column, no groupBy"""
+    """Test NA vs FE vs EU with minimal config and correct profiles"""
     import os as _os, httpx, time, asyncio, gzip, json
     cid=_os.environ['STORE_02_ADS_CLIENT_ID'];csec=_os.environ['STORE_02_ADS_CLIENT_SECRET'];ref=_os.environ['STORE_02_ADS_REFRESH_TOKEN']
     r=httpx.post('https://api.amazon.com/auth/o2/token',json={'grant_type':'refresh_token','client_id':cid,'client_secret':csec,'refresh_token':ref},timeout=10)
     tk=r.json()['access_token']
-    pid='3465892858543553'
-    h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':pid,'Content-Type':'application/json'}
+    
+    tests={
+        "NA/US":("advertising-api.amazon.com","3465892858543553"),
+        "FE/AU":("advertising-api-fe.amazon.com","3457387109813217"),
+        "EU/DE":("advertising-api-eu.amazon.com","2148844609196157"),
+    }
     
     results={}
-    for name,host in [("NA","advertising-api.amazon.com"),("FE","advertising-api-fe.amazon.com"),("EU","advertising-api-eu.amazon.com")]:
-        body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
+    for name,(host,pid) in tests.items():
+        h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':pid,'Content-Type':'application/json'}
+        body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':['cost'],'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
         rr=httpx.post(f'https://{host}/reporting/reports',headers=h,json=body,timeout=15)
         if rr.status_code not in (200,425):
             results[name]={"error":f"Create: {rr.status_code}","body":rr.text[:200]}
             continue
-        rid=rr.json().get('reportId') if rr.status_code==200 else None
+        rid=rr.json().get('reportId')
         if not rid:
-            results[name]={"error":"425 no reportId","body":rr.text[:200]}
+            results[name]={"error":f"{rr.status_code} no reportId","body":rr.text[:200]}
             continue
+        results[name]={"status":rr.status_code}
         for i in range(30):
             await asyncio.sleep(6)
             rp=httpx.get(f'https://{host}/reporting/reports/{rid}',headers=h,timeout=10)
@@ -203,12 +209,12 @@ async def test_ads_poll():
                     dl=httpx.get(rp.json()['url'],timeout=30)
                     raw=gzip.decompress(dl.content).decode()
                     data=json.loads(raw)
-                    results[name]={"polls":i+1,"status":"COMPLETED","rows":len(data) if isinstance(data,list) else str(type(data))[:50]}
+                    results[name].update({"polls":i+1,"result":"COMPLETED","rows":len(data) if isinstance(data,list) else 0})
                 else:
-                    results[name]={"polls":i+1,"status":"FAILURE"}
+                    results[name].update({"polls":i+1,"result":"FAILURE"})
                 break
-        if name not in results:
-            results[name]={"polls":30,"status":"TIMEOUT"}
+        if 'result' not in results[name]:
+            results[name]["result"]="TIMEOUT"
     return results
 
 
