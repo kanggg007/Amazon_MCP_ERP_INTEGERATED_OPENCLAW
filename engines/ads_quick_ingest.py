@@ -94,27 +94,17 @@ def pull_profile(store,snum,market,pid,region,yesterday,results):
 
 def run():
     yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
-    print(f"Ingestion (by type) — {yesterday}")
+    print(f"Ingestion (sequential) — {yesterday}")
     t0=time.time()
     results=[]
-    # Pull one report type at a time across all profiles in parallel
-    for rtype,cfg in REPORT_TYPES.items():
-        print(f"  Type: {rtype}")
-        threads=[]
-        for store in STORES:
-            snum=STORES[store]
-            for market,pid,region in PROFILES[store]:
-                t=threading.Thread(target=lambda s=store,n=snum,m=market,p=pid,r=region,rt=rtype,c=cfg: _run_and_print(results,s,n,m,p,r,rt,c,yesterday))
-                t.start()
-                threads.append(t)
-        for t in threads:t.join()
-        print(f"  {rtype}: {len([r for r in results[-13:]])} profiles done")
+    for store in STORES:
+        snum=STORES[store]
+        for market,pid,region in PROFILES[store]:
+            for rtype,cfg in REPORT_TYPES.items():
+                r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+                results.append(r)
+                print(r,flush=True)
     print(f"Done. {len(results)} reports in {int(time.time()-t0)}s")
-
-def _run_and_print(results,*args):
-    r=pull_one(*args)
-    results.append(r)
-    print(r,flush=True)
 
 if __name__=="__main__":
     load_env()
