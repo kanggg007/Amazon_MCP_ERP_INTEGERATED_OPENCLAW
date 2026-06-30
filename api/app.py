@@ -183,7 +183,7 @@ async def test_ads_poll():
     pid='3465892858543553';host='advertising-api.amazon.com'
     h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':pid,'Content-Type':'application/json'}
     
-    cols='cost,campaignName,campaignStatus,campaignMarketplaceId,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy'
+    cols='cost,campaignName,campaignStatus,sales1d,clicks,impressions,campaignBudgetAmount,campaignBiddingStrategy'
     body={'startDate':'2026-06-29','endDate':'2026-06-29','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':cols.split(','),'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
     
     # Create report
