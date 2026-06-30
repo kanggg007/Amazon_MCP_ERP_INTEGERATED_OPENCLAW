@@ -25,7 +25,11 @@ EU_STORES = {
 }
 
 def load_env():
-    for line in open(os.path.join(os.path.dirname(__file__) or '.', '..', '.env')).read().splitlines():
+    env_path=os.path.join(os.path.dirname(__file__) or '.','..','.env')
+    if not os.path.exists(env_path):
+        print("No .env file, using system env vars")
+        return
+    for line in open(env_path).read().splitlines():
         if line and "=" in line and not line.startswith("#"):
             k, v = line.split("=", 1)
             os.environ[k.strip()] = v.strip()
