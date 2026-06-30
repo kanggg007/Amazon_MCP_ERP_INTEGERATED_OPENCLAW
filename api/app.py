@@ -173,6 +173,28 @@ async def scheduler_status():
     return {"scheduler_time_cst": cst.strftime("%Y-%m-%d %H:%M:%S"), "utc": _dt.now(_tz.utc).strftime("%H:%M")}
 
 
+@app.get("/test/ads-poll")
+async def test_ads_poll():
+    """Direct test: create spCampaigns report for CUCZUUS US and poll 10 times, show raw responses."""
+    import os as _os, httpx
+    cid=_os.environ['STORE_02_ADS_CLIENT_ID'];csec=_os.environ['STORE_02_ADS_CLIENT_SECRET'];ref=_os.environ['STORE_02_ADS_REFRESH_TOKEN']
+    r=httpx.post('https://api.amazon.com/auth/o2/token',json={'grant_type':'refresh_token','client_id':cid,'client_secret':csec,'refresh_token':ref},timeout=10)
+    tk=r.json()['access_token']
+    h={'Authorization':'Bearer '+tk,'Amazon-Advertising-API-ClientId':cid,'Amazon-Advertising-API-Scope':'3465892858543553','Content-Type':'application/json'}
+    body={'startDate':'2026-06-28','endDate':'2026-06-28','configuration':{'adProduct':'SPONSORED_PRODUCTS','groupBy':['campaign'],'columns':['cost'],'reportTypeId':'spCampaigns','timeUnit':'SUMMARY','format':'GZIP_JSON'}}
+    rr=httpx.post('https://advertising-api.amazon.com/reporting/reports',headers=h,json=body,timeout=15)
+    if rr.status_code!=200:return {"error":"Create failed","status":rr.status_code,"body":rr.text[:300]}
+    rid=rr.json()['reportId']
+    polls=[]
+    for i in range(10):
+        import time,asyncio
+        await asyncio.sleep(5)
+        rp=httpx.get('https://advertising-api.amazon.com/reporting/reports/'+rid,headers=h,timeout=10)
+        d=rp.json()
+        polls.append({'poll':i,'status':d.get('status','?'),'keys':list(d.keys())[:8],'status_code':rp.status_code})
+    return {"report_id":rid,"polls":polls}
+
+
 @app.get("/debug/ingest-log")
 async def ingest_log():
     """Read the ingest log file."""
