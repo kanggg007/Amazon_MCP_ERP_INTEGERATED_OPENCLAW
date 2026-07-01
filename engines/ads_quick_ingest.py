@@ -36,9 +36,9 @@ def _already_in_db(store,market,rtype,date_str):
         return exists
     except:return False
 
-def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
+def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday,skip_dedup=False):
     # 1. DEDUP: skip if already in DB
-    if _already_in_db(store,market,rtype,yesterday):
+    if not skip_dedup and _already_in_db(store,market,rtype,yesterday):
         return f"{store}/{market}/{rtype}: SKIP (already in DB)"
     
     # 2. DEDUP: skip if already in flight
@@ -124,7 +124,7 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
     finally:
         _IN_FLIGHT.discard(flight_key)
 
-def pull_profile(store,snum,market,pid,region,yesterday,results):
+def pull_profile(store,snum,market,pid,region,yesterday,results,skip_dedup=False):
     """FE: parallel types. NA/EU: sequential types (kinder to the API)."""
     # NA/EU: hard delay before touching the profile (Railway is too fast)
     if region in ("na","eu"):
@@ -133,17 +133,17 @@ def pull_profile(store,snum,market,pid,region,yesterday,results):
     if region=="fe":
         threads=[]
         def _pull(rtype,cfg):
-            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday,skip_dedup)
             results.append(r);print(r,flush=True)
         for rtype,cfg in REPORT_TYPES.items():
             t=threading.Thread(target=_pull,args=(rtype,cfg));t.start();threads.append(t)
         for t in threads:t.join()
     else:
         for rtype,cfg in REPORT_TYPES.items():
-            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
+            r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday,skip_dedup)
             results.append(r);print(r,flush=True)
 
-def run(date=None):
+def run(date=None, skip_dedup=False):
     yesterday = date if date else (datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Ingestion v3 — {yesterday}")
     t0=time.time()
@@ -151,7 +151,7 @@ def run(date=None):
     for store in STORES:
         snum=STORES[store]
         for market,pid,region in PROFILES[store]:
-            t=threading.Thread(target=pull_profile,args=(store,snum,market,pid,region,yesterday,results))
+            t=threading.Thread(target=pull_profile,args=(store,snum,market,pid,region,yesterday,results,skip_dedup))
             t.start();threads.append(t)
     for t in threads:t.join()
     total=len(results)
