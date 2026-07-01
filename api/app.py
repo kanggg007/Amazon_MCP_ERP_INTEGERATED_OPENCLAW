@@ -331,16 +331,7 @@ async def run_ingestion(user_id: str = "master", force: str = "0", date: str = N
                 cur.execute("DELETE FROM ads_daily WHERE date=%s",(final_date,))
                 conn.commit();conn.close()
                 print(f"[INGEST] Force: cleared {cur.rowcount} rows for {final_date}",flush=True)
-        # Patch date for the ingest
-        orig_dt=mod.datetime.datetime
-        class FakeDT:
-            @staticmethod
-            def now(tz=None):
-                from datetime import datetime as _d, timezone, timedelta
-                return _d.strptime(final_date,'%Y-%m-%d')+timedelta(days=1,hours=10)
-        mod.datetime.datetime=FakeDT
-        try:mod.run()
-        finally:mod.datetime.datetime=orig_dt
+        mod.run(date=final_date)
         print("[INGEST] Complete",flush=True)
     threading.Thread(target=_run,daemon=True).start()
     return {"status":"started","force":force=="1","message":"Ingestion running"}

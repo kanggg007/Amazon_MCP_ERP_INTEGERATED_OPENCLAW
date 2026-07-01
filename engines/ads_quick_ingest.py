@@ -142,8 +142,8 @@ def pull_profile(store,snum,market,pid,region,yesterday,results):
             r=pull_one(store,snum,market,pid,region,rtype,cfg,yesterday)
             results.append(r);print(r,flush=True)
 
-def run():
-    yesterday=(datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
+def run(date=None):
+    yesterday = date if date else (datetime.now()-timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"Ingestion v3 — {yesterday}")
     t0=time.time()
     results=[];threads=[]
