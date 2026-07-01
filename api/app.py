@@ -308,27 +308,30 @@ async def data_status():
 
 
 @app.post("/admin/run-ingestion")
-async def run_ingestion(user_id: str = "master"):
-    """Trigger ingestion directly (no subprocess)."""
-    import importlib, sys as _sys2, asyncio
+async def run_ingestion(user_id: str = "master", force: str = "0"):
+    """Trigger ingestion. force=1 to skip DB dedup and re-pull all."""
+    import importlib, sys as _sys2, asyncio, threading
     from pathlib import Path as _Path
     BASE3 = _Path(__file__).parent.parent
-    path = BASE3 / "engines" / "ads_quick_ingest.py"
     _sys2.path.insert(0, str(BASE3))
     
-    async def _run():
-        try:
-            spec = importlib.util.spec_from_file_location('ads_quick_ingest', str(path))
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, mod.run)
-            logger.info("Ingestion completed")
-        except Exception as e:
-            logger.error("Ingestion ERROR: %s", e)
-    
-    asyncio.create_task(_run())
-    return {"status": "started", "message": "Ingestion running (direct import) — 13 profiles, ~20 min"}
+    def _run():
+        import engines.ads_quick_ingest as mod
+        if force == "1":
+            # Clear DB for yesterday to force fresh pull
+            import psycopg2, os as _os
+            from datetime import datetime, timezone, timedelta
+            yesterday=(datetime.now(timezone(timedelta(hours=8)))-timedelta(days=1)).strftime("%Y-%m-%d")
+            dsn=_os.environ.get("DATABASE_URL","")
+            if dsn:
+                conn=psycopg2.connect(dsn);cur=conn.cursor()
+                cur.execute("DELETE FROM ads_daily WHERE date=%s",(yesterday,))
+                conn.commit();conn.close()
+                print(f"[INGEST] Force: cleared {cur.rowcount} rows for {yesterday}",flush=True)
+        mod.run()
+        print("[INGEST] Complete",flush=True)
+    threading.Thread(target=_run,daemon=True).start()
+    return {"status":"started","force":force=="1","message":"Ingestion running"}
 
 
 @app.post("/admin/run-orders")

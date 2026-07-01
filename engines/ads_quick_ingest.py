@@ -107,8 +107,8 @@ def pull_one(store,snum,market,pid,region,rtype,rtype_cfg,yesterday):
                 if isinstance(rows,list) and len(rows)==1 and isinstance(rows[0],list):rows=rows[0]
                 cost=sum(float(r2.get("cost",0)) for r2 in rows if isinstance(r2,dict))
                 sales=sum(float(r2.get("sales1d",0)) for r2 in rows if isinstance(r2,dict))
-                fx=FX_USD.get(market,1.0) or FX_USD.get("USD",1.0)
-                cost_usd=cost*fx;sales_usd=sales*fx
+                # Cost from Amazon Ads API is already in billing currency (USD)
+                cost_usd=cost;sales_usd=sales
                 conn=psycopg2.connect(DSN)
                 cur=conn.cursor()
                 cur.execute("DELETE FROM ads_daily WHERE store=%s AND market=%s AND report_type=%s AND date=%s",(store,market,rtype,yesterday))
