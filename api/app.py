@@ -271,7 +271,18 @@ async def negatives_scan(user_id: str = "master"):
     _s2.path.insert(0,str(_P(__file__).parent.parent))
     from engines.negative_keyword_engine import find_negatives
     candidates, msg = find_negatives()
-    return {"status":"ok","message":msg,"candidates":candidates[:50],"total":len(candidates)}
+    result = []
+    for c in (candidates or [])[:50]:
+        result.append({
+            "store":c.get("store","?"),
+            "market":c.get("market","?"),
+            "term":c.get("searchTerm","?")[:60],
+            "cost":c.get("cost",0),
+            "clicks":c.get("clicks",0),
+            "sales":c.get("sales1d",0),
+            "campaign":c.get("campaignName","?")[:40]
+        })
+    return {"status":"ok","message":msg or "","candidates":result,"total":len(result)}
 
 @app.get("/admin/db-check")
 async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
