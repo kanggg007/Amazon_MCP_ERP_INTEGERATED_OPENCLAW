@@ -356,6 +356,29 @@ async def run_orders(user_id: str = "master"):
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started", "message": "Order pull running"}
 
+@app.get("/admin/orders-summary")
+async def orders_summary(date: str = None):
+    """All stores: orders, revenue, shipped, pending."""
+    import psycopg2, os as _os
+    from datetime import datetime, timezone, timedelta
+    if date is None:
+        date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(days=1)).strftime("%Y-%m-%d")
+    dsn=_os.environ.get("DATABASE_URL","")
+    conn=psycopg2.connect(dsn);cur=conn.cursor()
+    cur.execute("SELECT store, market, order_count, revenue, shipped, pending FROM orders_daily WHERE date=%s ORDER BY store, market",(date,))
+    rows=cur.fetchall();conn.close()
+    result={"date":date,"stores":{}}
+    total_rev=total_pending=total_shipped=0
+    for s,m,oc,rev,sh,pe in rows:
+        if s not in result["stores"]:result["stores"][s]={"orders":0,"revenue":{},"shipped":0,"pending":0}
+        st=result["stores"][s]
+        curr={"US":"USD","CA":"CAD","AU":"AUD","JP":"JPY","DE":"EUR"}.get(m,"?")
+        st["revenue"][curr]={"amount":round(float(rev or 0),2),"orders":oc}
+        st["orders"]+=oc;st["shipped"]+=sh or 0;st["pending"]+=pe or 0
+        total_rev+=float(rev or 0);total_pending+=pe or 0;total_shipped+=sh or 0
+    result["total"]={"orders":total_rev,"shipped":total_shipped,"pending":total_pending}
+    return result
+
 @app.post("/admin/run-revenue")
 async def run_revenue(user_id: str = "master", date: str = None):
     """Revenue report combining ads (DB) + orders (DB) in USD."""
