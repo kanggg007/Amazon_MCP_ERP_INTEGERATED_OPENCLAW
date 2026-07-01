@@ -297,10 +297,10 @@ async def data_status():
         # Count by date
         cur.execute("SELECT date, COUNT(*) FROM ads_daily GROUP BY date ORDER BY date")
         by_date=dict(cur.fetchall())
-        cur.execute("SELECT store, market, report_type, date, cost, sales, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 500")
+        cur.execute("SELECT store, market, report_type, date, cost, sales, data, pulled_at FROM ads_daily ORDER BY pulled_at DESC LIMIT 500")
         rows = []
         for r in cur.fetchall():
-            rows.append({"store":r[0],"market":r[1],"type":r[2],"date":str(r[3]),"cost":float(r[4]),"sales":float(r[5]),"pulled":str(r[6])})
+            rows.append({"store":r[0],"market":r[1],"type":r[2],"date":str(r[3]),"cost":float(r[4]),"sales":float(r[5]),"data":r[6] if r[6] else "[]","pulled":str(r[7])})
         conn.close()
         return {"status":"ok","db_total":total,"by_market":by_market,"by_date":{str(k):v for k,v in by_date.items()},"shown":len(rows),"rows":rows[:100],"app_uptime": str(_dt.now())}
     except Exception as e:
