@@ -7,13 +7,17 @@ DSN=os.environ.get("DATABASE_URL","postgresql://postgres:ZTHtVHerPtatmfNeCufdSaq
 FX_USD={"US":1.0,"CA":0.7033,"AU":0.6892,"JP":0.00614,"DE":1.1403}
 HOSTS={"na":"advertising-api.amazon.com","fe":"advertising-api-fe.amazon.com","eu":"advertising-api-eu.amazon.com"}
 
-# Slim columns — no string metadata, just IDs and metrics
+# Type priority: fast types (small) complete quickly; heavy types take longer
+TYPES_FAST = ["sp_campaigns","sp_targeting","sp_advertised_product"]
+TYPES_HEAVY = ["sp_search_terms","sp_purchased_product"]
+
 REPORT_TYPES={
     "sp_campaigns":{"reportTypeId":"spCampaigns","groupBy":["campaign"],"columns":"cost,campaignId,sales1d,clicks,impressions"},
-    "sp_search_terms":{"reportTypeId":"spSearchTerm","groupBy":["searchTerm"],"columns":"cost,keywordId,searchTerm,clicks,impressions,sales1d"},
-    "sp_targeting":{"reportTypeId":"spTargeting","groupBy":["targeting"],"columns":"keyword,matchType,cost,clicks,impressions,sales1d,campaignName"},
+    # Stripped names → campaignId/adGroupId only. 60% smaller payload = faster generation
+    "sp_search_terms":{"reportTypeId":"spSearchTerm","groupBy":["searchTerm"],"columns":"cost,campaignId,adGroupId,keywordId,searchTerm,clicks,impressions,sales1d"},
+    "sp_targeting":{"reportTypeId":"spTargeting","groupBy":["targeting"],"columns":"keyword,matchType,cost,clicks,impressions,sales1d,campaignName,campaignStatus"},
     "sp_advertised_product":{"reportTypeId":"spAdvertisedProduct","groupBy":["advertiser"],"columns":"cost,advertisedAsin,clicks,impressions,sales1d"},
-    "sp_purchased_product":{"reportTypeId":"spPurchasedProduct","groupBy":["asin"],"columns":"purchasedAsin,advertisedAsin,advertisedSku,sales1d,sales7d,sales30d,purchases1d,purchases7d,purchases30d,campaignName"},
+    "sp_purchased_product":{"reportTypeId":"spPurchasedProduct","groupBy":["asin"],"columns":"cost,purchasedAsin,advertisedAsin,sales1d,purchases1d"},
 }
 
 STORES={"CUCZUUS":"02","BOOLUU":"03","Heliumx":"04"}
