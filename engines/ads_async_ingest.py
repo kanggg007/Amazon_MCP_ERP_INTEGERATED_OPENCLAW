@@ -11,9 +11,9 @@ HOSTS={"na":"advertising-api.amazon.com","fe":"advertising-api-fe.amazon.com","e
 REPORT_TYPES={
     "sp_campaigns":{"reportTypeId":"spCampaigns","groupBy":["campaign"],"columns":"cost,campaignId,sales1d,clicks,impressions"},
     "sp_search_terms":{"reportTypeId":"spSearchTerm","groupBy":["searchTerm"],"columns":"cost,keywordId,searchTerm,clicks,impressions,sales1d"},
-    "sp_targeting":{"reportTypeId":"spTargeting","groupBy":["targeting"],"columns":"cost,targetingId,keywordText,clicks,impressions,sales1d"},
+    "sp_targeting":{"reportTypeId":"spTargeting","groupBy":["targeting"],"columns":"keyword,matchType,cost,clicks,impressions,sales1d,campaignName"},
     "sp_advertised_product":{"reportTypeId":"spAdvertisedProduct","groupBy":["advertiser"],"columns":"cost,advertisedAsin,clicks,impressions,sales1d"},
-    "sp_purchased_product":{"reportTypeId":"spPurchasedProduct","groupBy":["asin"],"columns":"cost,purchasedAsin,advertisedAsin,sales1d,purchases1d"},
+    "sp_purchased_product":{"reportTypeId":"spPurchasedProduct","groupBy":["asin"],"columns":"purchasedAsin,advertisedAsin,advertisedSku,sales1d,sales7d,sales30d,purchases1d,purchases7d,purchases30d,campaignName"},
 }
 
 STORES={"CUCZUUS":"02","BOOLUU":"03","Heliumx":"04"}
