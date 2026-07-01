@@ -435,16 +435,16 @@ async def run_revenue(user_id: str = "master", date: str = None):
     if date is None:
         date = (datetime.now(timezone(timedelta(hours=8))) - timedelta(days=1)).strftime("%Y-%m-%d")
     
-    FX = {"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95}
+    FX = {"US":1.0,"CA":0.7033,"AU":0.6892,"JP":0.00614,"DE":1.1403}
     
     def _run():
-        import psycopg2, os as _os
+        import psycopg2, os as _os, json as _j
         dsn = _os.environ.get("DATABASE_URL","")
         conn = psycopg2.connect(dsn)
         cur = conn.cursor()
         
-        # Ads spend
-        cur.execute("SELECT store, market, report_type, cost, sales, data FROM ads_daily WHERE date = %s AND report_type = 'sp_campaigns'",(date,))
+        # Ads spend — sum raw costs from data JSON, apply FX
+        cur.execute("SELECT store, market, data FROM ads_daily WHERE date = %s AND report_type = 'sp_campaigns'",(date,))
         ads = cur.fetchall()
         
         # Orders
@@ -452,20 +452,25 @@ async def run_revenue(user_id: str = "master", date: str = None):
         orders = cur.fetchall()
         conn.close()
         
-        # Combine
+        # Combine with live FX
         report = {}
-        for s,m,rt,cost,sales,data in ads:
+        for s,m,data in ads:
             key = f"{s}/{m}"
-            if key not in report: report[key] = {"ads_cost":0,"ads_sales":0,"orders":0,"order_rev":0,"order_rev_usd":0}
-            report[key]["ads_cost"] += float(cost or 0)
-            report[key]["ads_sales"] += float(sales or 0)
+            if key not in report: report[key] = {"ads_cost":0,"ads_sales":0,"orders":0,"order_rev":0}
+            try:
+                rows=_j.loads(data) if isinstance(data,str) else (data or [])
+                raw_cost=sum(float(r.get("cost",0)) for r in rows if isinstance(r,dict))
+                raw_sales=sum(float(r.get("sales1d",0)) for r in rows if isinstance(r,dict))
+                fx=FX.get(m,1.0)
+                report[key]["ads_cost"]+=round(raw_cost*fx,2)
+                report[key]["ads_sales"]+=round(raw_sales*fx,2)
+            except:pass
         for s,m,oc,rev,shipped,pending in orders:
             key = f"{s}/{m}"
-            if key not in report: report[key] = {"ads_cost":0,"ads_sales":0,"orders":0,"order_rev":0,"order_rev_usd":0}
+            if key not in report: report[key] = {"ads_cost":0,"ads_sales":0,"orders":0,"order_rev":0}
             fx = FX.get(m,1.0)
             report[key]["orders"] += oc or 0
-            report[key]["order_rev"] += float(rev or 0)
-            report[key]["order_rev_usd"] += float(rev or 0) * fx
+            report[key]["order_rev"] += round(float(rev or 0)*fx,2)
         
         print(f"Revenue Report — {date}", flush=True)
         total_ads = total_order_count = 0
