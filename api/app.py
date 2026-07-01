@@ -337,6 +337,32 @@ async def run_ingestion(user_id: str = "master", force: str = "0", date: str = N
     return {"status":"started","force":force=="1","message":"Ingestion running"}
 
 
+@app.post("/admin/ads-trigger")
+async def ads_trigger(user_id: str = "master", date: str = None):
+    """Task A: Fire all report requests, save IDs, return immediately."""
+    import threading
+    def _run():
+        import sys as _s
+        from pathlib import Path as _P
+        _s.path.insert(0,str(_P(__file__).parent.parent))
+        from engines.ads_async_ingest import init_db, task_a_trigger
+        init_db();task_a_trigger(date=date)
+    threading.Thread(target=_run,daemon=True).start()
+    return {"status":"started","message":"Task A: triggering all reports"}
+
+@app.post("/admin/ads-collect")
+async def ads_collect(user_id: str = "master", date: str = None):
+    """Task B: Poll pending reports, download completed ones."""
+    import threading
+    def _run():
+        import sys as _s
+        from pathlib import Path as _P
+        _s.path.insert(0,str(_P(__file__).parent.parent))
+        from engines.ads_async_ingest import init_db, task_b_collect
+        init_db();task_b_collect(date=date)
+    threading.Thread(target=_run,daemon=True).start()
+    return {"status":"started","message":"Task B: checking pending reports"}
+
 @app.post("/admin/run-orders")
 async def run_orders(user_id: str = "master"):
     """Pull orders from SP-API Reports API."""
@@ -1560,6 +1586,7 @@ async def _run_scheduler():
     logger.info("Scheduler started with %d jobs", len(SCHEDULE))
     print(f"[SCHEDULER] Started with {len(SCHEDULE)} jobs", flush=True)
     last_run = {}
+    collect_last = None
     
     while True:
         try:
@@ -1567,6 +1594,15 @@ async def _run_scheduler():
             if now.minute % 5 == 0 and now.second < 60:
                 logger.info("[Scheduler] alive at %s", now.strftime("%H:%M"))
                 print(f"[SCHEDULER] alive at {now.strftime('%H:%M')}", flush=True)
+            
+            # Task B: every 15 min, check pending ads reports
+            if now.minute % 15 == 0 and (collect_last is None or (now-collect_last).seconds>120):
+                collect_last=now
+                try:
+                    from engines.ads_async_ingest import task_b_collect
+                    loop=asyncio.get_running_loop()
+                    await loop.run_in_executor(None,task_b_collect)
+                except:pass
             for hour, minute, dow, script, name in SCHEDULE:
                 key = (hour, minute, dow or 0, script)
                 if now.hour == hour and now.minute == minute:
