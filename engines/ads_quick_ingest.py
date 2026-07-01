@@ -3,7 +3,7 @@ import os,httpx,json,gzip,time,psycopg2,threading
 from datetime import datetime,timedelta
 
 DSN=os.environ.get("DATABASE_URL","postgresql://postgres:ZTHtVHerPtatmfNeCufdSaqieNjmfxmW@acela.proxy.rlwy.net:58049/railway?sslmode=require")
-FX_USD={"USD":1.0,"CAD":0.2059,"AUD":0.2102,"JPY":0.0063,"EUR":0.95}
+FX_USD={"US":1.0,"CA":0.2059,"AU":0.2102,"JP":0.0063,"DE":0.95}
 HOSTS={"na":"advertising-api.amazon.com","fe":"advertising-api-fe.amazon.com","eu":"advertising-api-eu.amazon.com"}
 
 REPORT_TYPES={
