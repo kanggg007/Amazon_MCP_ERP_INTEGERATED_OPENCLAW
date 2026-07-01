@@ -263,6 +263,16 @@ async def cleanup_ads():
     after=cur.fetchone()[0];conn.close()
     return {"status":"ok","before":before,"deleted":deleted,"after":after}
 
+@app.get("/admin/negatives-scan")
+async def negatives_scan(user_id: str = "master"):
+    """Scan search terms for negative keyword candidates."""
+    import sys as _s2
+    from pathlib import Path as _P
+    _s2.path.insert(0,str(_P(__file__).parent.parent))
+    from engines.negative_keyword_engine import find_negatives
+    candidates, msg = find_negatives()
+    return {"status":"ok","message":msg,"candidates":candidates[:50],"total":len(candidates)}
+
 @app.get("/admin/db-check")
 async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
     """Direct DB check for specific row."""
