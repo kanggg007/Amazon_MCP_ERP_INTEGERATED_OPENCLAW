@@ -308,27 +308,39 @@ async def data_status():
 
 
 @app.post("/admin/run-ingestion")
-async def run_ingestion(user_id: str = "master", force: str = "0"):
+async def run_ingestion(user_id: str = "master", force: str = "0", date: str = None):
     """Trigger ingestion. force=1 to skip DB dedup and re-pull all."""
     import importlib, sys as _sys2, asyncio, threading
     from pathlib import Path as _Path
     BASE3 = _Path(__file__).parent.parent
     _sys2.path.insert(0, str(BASE3))
     
+    if date is None:
+        from datetime import datetime as _dt, timezone, timedelta
+        date = (_dt.now(timezone(timedelta(hours=8))) - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    final_date = date
+    
     def _run():
         import engines.ads_quick_ingest as mod
         if force == "1":
-            # Clear DB for yesterday to force fresh pull
             import psycopg2, os as _os
-            from datetime import datetime, timezone, timedelta
-            yesterday=(datetime.now(timezone(timedelta(hours=8)))-timedelta(days=1)).strftime("%Y-%m-%d")
             dsn=_os.environ.get("DATABASE_URL","")
             if dsn:
                 conn=psycopg2.connect(dsn);cur=conn.cursor()
-                cur.execute("DELETE FROM ads_daily WHERE date=%s",(yesterday,))
+                cur.execute("DELETE FROM ads_daily WHERE date=%s",(final_date,))
                 conn.commit();conn.close()
-                print(f"[INGEST] Force: cleared {cur.rowcount} rows for {yesterday}",flush=True)
-        mod.run()
+                print(f"[INGEST] Force: cleared {cur.rowcount} rows for {final_date}",flush=True)
+        # Patch date for the ingest
+        orig_dt=mod.datetime.datetime
+        class FakeDT:
+            @staticmethod
+            def now(tz=None):
+                from datetime import datetime as _d, timezone, timedelta
+                return _d.strptime(final_date,'%Y-%m-%d')+timedelta(days=1,hours=10)
+        mod.datetime.datetime=FakeDT
+        try:mod.run()
+        finally:mod.datetime.datetime=orig_dt
         print("[INGEST] Complete",flush=True)
     threading.Thread(target=_run,daemon=True).start()
     return {"status":"started","force":force=="1","message":"Ingestion running"}
