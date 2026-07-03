@@ -78,7 +78,10 @@ def backfill_orders(date_start_str, date_end_str=None):
         dates.append(d)
         d += timedelta(days=1)
     
-    print(f"[BACKFILL] {date_start_str} to {date_end_str} ({len(dates)} days)", flush=True)
+    # Single date range: from start 07:00Z to today
+    after = date_start.strftime('%Y-%m-%dT07:00:00Z')
+    
+    print(f"[BACKFILL] {date_start_str} to {date_end_str} ({len(dates)} days), after={after}", flush=True)
     
     total_orders = 0
     total_items = 0
@@ -106,80 +109,91 @@ def backfill_orders(date_start_str, date_end_str=None):
             tk = r.json()['access_token']
             host = HOSTS[region]
             
-            for day in dates:
-                # LA time: 07:00Z day to 07:00Z next day
-                after = day.strftime('%Y-%m-%dT07:00:00Z')
-                before = (day + timedelta(days=1)).strftime('%Y-%m-%dT07:00:00Z')
+            # Single pull from start date to now
+            day_orders = 0
+            nt = None
+            page = 0
+            while True:
+                page += 1
+                u = f'https://{host}/orders/2026-01-01/orders?marketplaceIds={mids_str}&createdAfter={after}&MaxResultsPerPage=100'
+                if nt:
+                    u += '&nextToken=' + nt
+                try:
+                    r2 = httpx.get(u, headers={'x-amz-access-token': tk}, timeout=30)
+                except:
+                    break
+                if r2.status_code != 200:
+                    print(f"  v2026 fail: {store_name}/{region} status={r2.status_code}", flush=True)
+                    break
                 
-                day_orders = 0
-                nt = None
-                page = 0
-                while True:
-                    page += 1
-                    u = f'https://{host}/orders/2026-01-01/orders?marketplaceIds={mids_str}&createdAfter={after}&createdBefore={before}&MaxResultsPerPage=100'
-                    if nt:
-                        u += '&nextToken=' + nt
+                data = r2.json()
+                orders = data.get('orders', [])
+                if not orders:
+                    break
+                
+                # Insert batch
+                conn = psycopg2.connect(dsn)
+                cur = conn.cursor()
+                for o in orders:
+                    oid = o['orderId']
+                    mkt_id = o.get('salesChannel', {}).get('marketplaceId', '')
+                    mkt = MID_TO_MKT.get(mkt_id, 'US')
+                    purchase_date = o.get('purchaseDate', '')
+                    if not purchase_date:
+                        continue
+                    
+                    # Only include orders in our date range (LA time: 07:00 to 07:00)
                     try:
-                        r2 = httpx.get(u, headers={'x-amz-access-token': tk}, timeout=30)
+                        if 'T' in str(purchase_date):
+                            pdt = datetime.fromisoformat(str(purchase_date).replace('Z', '+00:00'))
+                            pdt_date = (pdt - timedelta(hours=7)).date()  # Convert UTC to LA
+                        else:
+                            pdt_date = datetime.strptime(str(purchase_date)[:10], '%Y-%m-%d').date()
                     except:
-                        break
-                    if r2.status_code != 200:
-                        break
+                        pdt_date = datetime.now().date()
                     
-                    data = r2.json()
-                    orders = data.get('orders', [])
-                    if not orders:
-                        break
+                    if pdt_date < date_start.date() or pdt_date > date_end.date():
+                        continue
                     
-                    # Insert batch
-                    conn = psycopg2.connect(dsn)
-                    cur = conn.cursor()
-                    for o in orders:
-                        oid = o['orderId']
-                        mkt_id = o.get('salesChannel', {}).get('marketplaceId', '')
-                        mkt = MID_TO_MKT.get(mkt_id, 'US')
-                        seller_id = ''  # v2026 doesn't expose sellerId in the order directly
-                        purchase_date = o.get('purchaseDate', '')
+                    # UPSERT order
+                    cur.execute("""
+                        INSERT INTO orders_active (order_id, store, marketplace, marketplace_id, seller_id, status, fulfillment_type, purchase_date, last_updated)
+                        VALUES (%s, %s, %s, %s, %s, 'FOUND', 'FBA', %s, NOW())
+                        ON CONFLICT (order_id) DO NOTHING
+                    """, (oid, store_name, mkt, mkt_id, '', purchase_date))
+                    
+                    for it in o.get('orderItems', []):
+                        p = it.get('product', {})
+                        asin = p.get('asin', '')
+                        sku = p.get('sellerSku', '')
+                        title = (p.get('title', '') or '')[:200]
+                        price = float(p.get('price', {}).get('unitPrice', {}).get('amount', 0) or 0)
+                        currency = p.get('price', {}).get('unitPrice', {}).get('currencyCode', 'USD')
+                        qty = int(it.get('quantityOrdered', 1) or 1)
+                        oiid = it.get('orderItemId', '')
                         
-                        # UPSERT order
-                        cur.execute("""
-                            INSERT INTO orders_active (order_id, store, marketplace, marketplace_id, seller_id, status, fulfillment_type, purchase_date, last_updated)
-                            VALUES (%s, %s, %s, %s, %s, 'FOUND', 'FBA', %s, NOW())
-                            ON CONFLICT (order_id) DO NOTHING
-                        """, (oid, store_name, mkt, mkt_id, '', purchase_date))
-                        
-                        for it in o.get('orderItems', []):
-                            p = it.get('product', {})
-                            asin = p.get('asin', '')
-                            sku = p.get('sellerSku', '')
-                            title = (p.get('title', '') or '')[:200]
-                            price = float(p.get('price', {}).get('unitPrice', {}).get('amount', 0) or 0)
-                            currency = p.get('price', {}).get('unitPrice', {}).get('currencyCode', 'USD')
-                            qty = int(it.get('quantityOrdered', 1) or 1)
-                            oiid = it.get('orderItemId', '')
-                            
-                            if asin and price > 0:
-                                cur.execute("""
-                                    INSERT INTO order_items_active (order_id, order_item_id, seller_sku, asin, quantity, unit_price, currency, title)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                                    ON CONFLICT (order_id, order_item_id) DO NOTHING
-                                """, (oid, oiid, sku, asin, qty, price, currency, title))
-                                total_items += 1
-                        
-                        day_orders += 1
+                        if asin and price > 0:
+                            cur.execute("""
+                                INSERT INTO order_items_active (order_id, order_item_id, seller_sku, asin, quantity, unit_price, currency, title)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (order_id, order_item_id) DO NOTHING
+                            """, (oid, oiid, sku, asin, qty, price, currency, title))
+                            total_items += 1
                     
-                    conn.commit()
-                    conn.close()
-                    total_orders += day_orders
-                    
-                    nt = data.get('nextToken')
-                    if not nt:
-                        break
-                    time.sleep(0.5)  # Rate limit
+                    day_orders += 1
                 
-                if day_orders:
-                    print(f"  {store_name}/{region} {day.strftime('%Y-%m-%d')}: {day_orders} orders ({page} pages)", flush=True)
-                time.sleep(1)  # Between days
+                conn.commit()
+                conn.close()
+                total_orders += day_orders
+                
+                nt = data.get('nextToken')
+                if not nt:
+                    break
+                time.sleep(0.3)  # Rate limit
+            
+            if day_orders:
+                print(f"  {store_name}/{region}: {day_orders} orders ({page} pages)", flush=True)
+            time.sleep(1)  # Between regions
     
     print(f"[BACKFILL] Done: {total_orders} orders, {total_items} items", flush=True)
     return {"status": "ok", "orders": total_orders, "items": total_items, "dates": len(dates)}
