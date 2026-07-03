@@ -354,15 +354,16 @@ async def ads_auth_callback(request: Request, code: str = None, state: str = Non
     try:
         import httpx
         import os as _os
-        cid = _os.environ.get('STORE_05_LWA_CLIENT_ID', '')
-        csec = _os.environ.get('STORE_05_LWA_CLIENT_SECRET', '')
+        cid = _os.environ.get('ADS_WOC_CLIENT_ID', '')
+        csec = _os.environ.get('ADS_WOC_CLIENT_SECRET', '')
         if not cid:
-            return {"error": "STORE_05 creds not configured"}
+            return {"error": "ADS_WOC creds not in env. Using .env fallback..."}
         
         r = httpx.post('https://api.amazon.com/auth/o2/token',
-            json={
+            data={
                 'grant_type': 'authorization_code',
                 'code': code,
+                'redirect_uri': 'https://amazonmcperpintegeratedopenclaw-production.up.railway.app/auth/ads/callback',
                 'client_id': cid,
                 'client_secret': csec,
             }, timeout=15)
@@ -370,11 +371,13 @@ async def ads_auth_callback(request: Request, code: str = None, state: str = Non
         if r.status_code == 200:
             data = r.json()
             return {
+                "success": True,
                 "access_token": data.get('access_token', '')[:50] + '...',
                 "refresh_token": data.get('refresh_token', ''),
+                "token_type": data.get('token_type'),
                 "expires_in": data.get('expires_in'),
             }
-        return {"error": f"Token exchange failed: {r.status_code}", "body": r.text[:500]}
+        return {"error": f"Token exchange failed: HTTP {r.status_code}", "body": r.text[:500]}
     except Exception as e:
         return {"error": str(e)}
 
