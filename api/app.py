@@ -387,7 +387,7 @@ async def privacy(request: Request, code: str = None, state: str = None):
             
             r = httpx.post('https://api.amazon.com/auth/o2/token',
                 data={'grant_type': 'authorization_code', 'code': code,
-                      'redirect_uri': str(request.url).split('?')[0],
+                      'redirect_uri': 'https://amazonmcperpintegeratedopenclaw-production.up.railway.app/privacy',
                       'client_id': cid, 'client_secret': csec}, timeout=15)
             
             if r.status_code == 200:
