@@ -348,8 +348,8 @@ def backfill_orders(date_start: str = None, date_end: str = None):
 @app.api_route("/auth/ads/callback", methods=["GET", "HEAD"])
 async def ads_auth_callback(request: Request, code: str = None, state: str = None):
     """Ads API OAuth callback — exchange code for refresh token."""
+    from fastapi.responses import HTMLResponse
     if not code:
-        from fastapi.responses import HTMLResponse
         return HTMLResponse('<html><body><h1>Amazon Ads OAuth Callback</h1><p>Ready. Waiting for authorization code.</p></body></html>')
     
     try:
@@ -361,25 +361,21 @@ async def ads_auth_callback(request: Request, code: str = None, state: str = Non
             return HTMLResponse('<html><body><h1>Error</h1><p>ADS_WOC credentials not configured</p></body></html>', status_code=500)
         
         r = httpx.post('https://api.amazon.com/auth/o2/token',
-            data={
-                'grant_type': 'authorization_code',
-                'code': code,
-                'redirect_uri': 'https://amazonmcperpintegeratedopenclaw-production.up.railway.app/auth/ads/callback',
-                'client_id': cid,
-                'client_secret': csec,
-            }, timeout=15)
+            data={'grant_type': 'authorization_code', 'code': code,
+                  'redirect_uri': str(request.url).split('?')[0],
+                  'client_id': cid, 'client_secret': csec}, timeout=15)
         
         if r.status_code == 200:
             data = r.json()
-            from fastapi.responses import HTMLResponse
-            return HTMLResponse(f'''<html><body><h1>✅ Tokens Retrieved</h1>
-            <pre>Refresh Token: {data.get('refresh_token', 'N/A')}</pre>
-            <p>Copy this token and store it securely.</p></body></html>''')
-        from fastapi.responses import HTMLResponse
-        return HTMLResponse(f'<html><body><h1>❌ Token Exchange Failed</h1><pre>{r.status_code}: {r.text[:500]}</pre></body></html>', status_code=400)
+            return HTMLResponse(f'<html><body><h1>✅ Tokens Retrieved</h1><pre>Refresh Token: {data.get("refresh_token", "N/A")}</pre><p>Copy this token and store it securely.</p></body></html>')
+        return HTMLResponse(f'<html><body><h1>❌ Failed</h1><pre>{r.status_code}: {r.text[:500]}</pre></body></html>', status_code=400)
     except Exception as e:
-        from fastapi.responses import HTMLResponse
         return HTMLResponse(f'<html><body><h1>Error</h1><pre>{e}</pre></body></html>', status_code=500)
+
+@app.api_route("/privacy", methods=["GET", "HEAD"])
+async def privacy():
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse('<html><body><h1>Privacy Policy</h1><p>Amazon Ops Intel</p></body></html>')
 
 @app.get("/amazon-ads.txt")
 async def amazon_ads_txt():
