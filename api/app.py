@@ -382,8 +382,8 @@ async def seed_product_costs():
 async def push_status():
     """Check push notification infrastructure status."""
     try:
-        import psycopg2 as _pg2
-        dsn = os.environ.get("DATABASE_URL", "")
+        import os as _os, psycopg2 as _pg2
+        dsn = _os.environ.get("DATABASE_URL", "")
         if not dsn:
             return {"error": "no DATABASE_URL"}
         conn = _pg2.connect(dsn)
