@@ -1,0 +1,4 @@
+# Amazon Ads API Security Contact
+ContactName: Kang
+ContactEmail: kang@megapower.com
+LastUpdated: 2026-07-03
