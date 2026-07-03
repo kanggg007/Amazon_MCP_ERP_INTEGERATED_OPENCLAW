@@ -284,6 +284,52 @@ async def negatives_scan(user_id: str = "master"):
         })
     return {"status":"ok","message":msg or "","candidates":result,"total":len(result)}
 
+@app.post("/admin/seed-product-costs")
+async def seed_product_costs():
+    """Seed product_cost_master table from data JSON."""
+    import psycopg2, os as _os, json
+    dsn = _os.environ.get("DATABASE_URL", "")
+    conn = psycopg2.connect(dsn); cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS product_cost_master (
+        asin VARCHAR(20), marketplace VARCHAR(5), seller_sku VARCHAR(50),
+        cogs_usd NUMERIC(10,2), sea_freight_usd NUMERIC(10,2),
+        weight_kg NUMERIC(10,3), length_cm NUMERIC(10,2),
+        width_cm NUMERIC(10,2), height_cm NUMERIC(10,2),
+        item_name TEXT, fulfillment_channel VARCHAR(20),
+        PRIMARY KEY (asin, marketplace)
+    )""")
+    conn.commit()
+    # Seed from catalog
+    import openpyxl
+    from pathlib import Path
+    cat_path = Path(__file__).parent.parent / 'data' / 'Master_Product_Catalog_v2.xlsx'
+    if not cat_path.exists():
+        return {"error": "Catalog not found"}
+    wb = openpyxl.load_workbook(str(cat_path), data_only=True)
+    CNY = 0.1477
+    FREIGHT = {'US': ('kg', 5.0), 'CA': ('cbm', 1200), 'AU': ('cbm', 1200), 'JP': ('cbm', 1200), 'DE': ('cbm', 1500)}
+    n = 0
+    for row in wb.active.iter_rows(min_row=2, values_only=True):
+        if not row[2]: continue
+        s, m, asin = str(row[0]), str(row[1]), str(row[2])
+        l = float(row[4] or 0); w = float(row[5] or 0); h = float(row[6] or 0); k = float(row[7] or 0)
+        cogs = float(row[8] or 0); title = str(row[3] or '')[:200]
+        if not asin: continue
+        mode, rate = FREIGHT.get(m, ('kg', 5.0))
+        if l and w and h and k:
+            if mode == 'kg': frt = max(k, l * w * h / 6000) * rate * CNY
+            else: frt = l * w * h / 1_000_000 * rate * CNY
+        else: frt = 0
+        cur.execute("""INSERT INTO product_cost_master (asin,marketplace,seller_sku,cogs_usd,sea_freight_usd,weight_kg,length_cm,width_cm,height_cm,item_name,fulfillment_channel)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (asin,marketplace) DO UPDATE SET
+            cogs_usd=EXCLUDED.cogs_usd,sea_freight_usd=EXCLUDED.sea_freight_usd,
+            weight_kg=EXCLUDED.weight_kg,length_cm=EXCLUDED.length_cm,width_cm=EXCLUDED.width_cm,height_cm=EXCLUDED.height_cm""",
+            (asin, m, '', round(cogs * CNY, 2), round(frt, 2), k, l, w, h, title, 'AFN'))
+        n += 1
+    conn.commit(); conn.close()
+    return {"status": "ok", "products": n}
+
 @app.get("/admin/db-check")
 async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
     """Direct DB check for specific row."""
