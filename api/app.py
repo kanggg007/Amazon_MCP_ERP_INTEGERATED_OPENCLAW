@@ -381,29 +381,27 @@ async def seed_product_costs():
 @app.get("/admin/push-status")
 async def push_status():
     """Check push notification infrastructure status."""
-    import psycopg2 as _pg2
-    
-    dsn = os.environ.get("DATABASE_URL", "")
-    result = {}
-    
-    if dsn:
-        try:
-            conn = _pg2.connect(dsn)
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(*), COUNT(DISTINCT store) FROM orders_active")
-            r = cur.fetchone() or (0,0)
-            result["orders_active"] = r[0]
-            result["stores"] = r[1]
-            cur.execute("SELECT COUNT(*) FROM order_items_active")
-            row2 = cur.fetchone()
-            result["order_items"] = row2[0] if row2 else 0
-            conn.close()
-        except Exception as e:
-            result["error"] = str(e)
-    else:
-        result["error"] = "no DATABASE_URL"
-    
-    return result
+    try:
+        import psycopg2 as _pg2
+        dsn = os.environ.get("DATABASE_URL", "")
+        if not dsn:
+            return {"error": "no DATABASE_URL"}
+        conn = _pg2.connect(dsn)
+        cur = conn.cursor()
+        # Ensure tables exist
+        cur.execute("CREATE TABLE IF NOT EXISTS orders_active (order_id VARCHAR(32) PRIMARY KEY, store VARCHAR(10), marketplace VARCHAR(5), marketplace_id VARCHAR(20), seller_id VARCHAR(20), status VARCHAR(20), fulfillment_type VARCHAR(10), purchase_date TIMESTAMP, last_updated TIMESTAMP DEFAULT NOW())")
+        cur.execute("CREATE TABLE IF NOT EXISTS order_items_active (id SERIAL PRIMARY KEY, order_id VARCHAR(32) REFERENCES orders_active(order_id), order_item_id VARCHAR(32), seller_sku VARCHAR(50), asin VARCHAR(15), quantity INT, unit_price DECIMAL(10,2), currency VARCHAR(5), title VARCHAR(200), UNIQUE(order_id, order_item_id))")
+        conn.commit()
+        cur.execute("SELECT COUNT(*), COUNT(DISTINCT store) FROM orders_active")
+        r = cur.fetchone()
+        result = {"orders_active": r[0] if r else 0, "stores": r[1] if r else 0}
+        cur.execute("SELECT COUNT(*) FROM order_items_active")
+        r2 = cur.fetchone()
+        result["order_items"] = r2[0] if r2 else 0
+        conn.close()
+        return result
+    except Exception as e:
+        return {"error": str(e), "type": type(e).__name__}
 
 @app.get("/admin/db-check")
 async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
