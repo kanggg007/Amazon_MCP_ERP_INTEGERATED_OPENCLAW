@@ -296,13 +296,25 @@ async def daily_profit(date: str = None):
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started", "date": date or "yesterday", "message": "Check Railway logs for output"}
 
+@app.post("/admin/backfill-orders")
+def backfill_orders(date_start: str = None, date_end: str = None):
+    """Backfill historical orders into orders_active + items_active."""
+    import threading, sys as _sys5
+    from pathlib import Path as _Path5
+    def _run():
+        BASE5 = _Path5(__file__).parent.parent
+        _sys5.path.insert(0, str(BASE5))
+        from engines.backfill_orders import backfill_orders as _bf
+        result = _bf(date_start, date_end or date_start)
+        print(f"[BACKFILL] {result}", flush=True)
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "dates": f"{date_start} to {date_end or date_start}", "message": "Check Railway logs"}
+
 @app.get("/admin/ads-summary")
 def ads_summary(date: str = None):
-    """Show ads spend per store/market for a given date."""
     import datetime as _dt
     dsn = os.environ.get("DATABASE_URL", "")
-    if not dsn:
-        return {"error": "no DATABASE_URL"}
+    if not dsn: return {"error": "no DATABASE_URL"}
     conn = psycopg2.connect(dsn)
     cur = conn.cursor()
     if date is None:
@@ -315,7 +327,6 @@ def ads_summary(date: str = None):
 
 @app.post("/admin/setup-push")
 def setup_push():
-    """One-time setup: Create SQS queue + register SP-API destination + subscribe ORDER_CHANGE."""
     import threading, sys as _sys4
     from pathlib import Path as _Path4
     def _run():
@@ -324,9 +335,9 @@ def setup_push():
         import subprocess as _sp4
         result = _sp4.run([_sys4.executable, str(BASE4 / 'scripts' / 'setup_sp_push.py')],
                          capture_output=True, text=True, cwd=str(BASE4), timeout=120)
-        print("[SETUP-PUSH]\n" + result.stdout)
+        print("[SETUP-PUSH]\n" + result.stdout, flush=True)
         if result.stderr:
-            print("[SETUP-PUSH STDERR]\n" + result.stderr)
+            print("[SETUP-PUSH STDERR]\n" + result.stderr, flush=True)
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started", "message": "Creating SQS + destination + subscription. Check Railway logs."}
 
