@@ -345,6 +345,39 @@ def backfill_orders(date_start: str = None, date_end: str = None):
         import traceback as _tb
         return {"error": str(e), "traceback": _tb.format_exc()}
 
+@app.get("/auth/ads/callback")
+async def ads_auth_callback(request: Request, code: str = None, state: str = None):
+    """Ads API OAuth callback — exchange code for refresh token."""
+    if not code:
+        return {"error": "no code", "query": str(request.query_params)}
+    
+    try:
+        import httpx
+        import os as _os
+        cid = _os.environ.get('STORE_05_LWA_CLIENT_ID', '')
+        csec = _os.environ.get('STORE_05_LWA_CLIENT_SECRET', '')
+        if not cid:
+            return {"error": "STORE_05 creds not configured"}
+        
+        r = httpx.post('https://api.amazon.com/auth/o2/token',
+            json={
+                'grant_type': 'authorization_code',
+                'code': code,
+                'client_id': cid,
+                'client_secret': csec,
+            }, timeout=15)
+        
+        if r.status_code == 200:
+            data = r.json()
+            return {
+                "access_token": data.get('access_token', '')[:50] + '...',
+                "refresh_token": data.get('refresh_token', ''),
+                "expires_in": data.get('expires_in'),
+            }
+        return {"error": f"Token exchange failed: {r.status_code}", "body": r.text[:500]}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/amazon-ads.txt")
 async def amazon_ads_txt():
     """Amazon Ads API Security Contact File"""
