@@ -313,6 +313,23 @@ def ads_summary(date: str = None):
     conn.close()
     return {"date": date or "last 7 days", "ads": rows}
 
+@app.post("/admin/setup-push")
+def setup_push():
+    """One-time setup: Create SQS queue + register SP-API destination + subscribe ORDER_CHANGE."""
+    import threading, sys as _sys4
+    from pathlib import Path as _Path4
+    def _run():
+        BASE4 = _Path4(__file__).parent.parent
+        _sys4.path.insert(0, str(BASE4))
+        import subprocess as _sp4
+        result = _sp4.run([_sys4.executable, str(BASE4 / 'scripts' / 'setup_sp_push.py')],
+                         capture_output=True, text=True, cwd=str(BASE4), timeout=120)
+        print("[SETUP-PUSH]\n" + result.stdout)
+        if result.stderr:
+            print("[SETUP-PUSH STDERR]\n" + result.stderr)
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "message": "Creating SQS + destination + subscription. Check Railway logs."}
+
 @app.get("/admin/daily-profit")
 
 @app.post("/admin/seed-product-costs")
