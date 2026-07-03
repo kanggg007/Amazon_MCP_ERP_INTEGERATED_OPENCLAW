@@ -373,9 +373,31 @@ async def ads_auth_callback(request: Request, code: str = None, state: str = Non
         return HTMLResponse(f'<html><body><h1>Error</h1><pre>{e}</pre></body></html>', status_code=500)
 
 @app.api_route("/privacy", methods=["GET", "HEAD"])
-async def privacy():
+async def privacy(request: Request, code: str = None, state: str = None):
+    """Privacy page + Ads API OAuth callback (used by CUCZUUS & WOC)."""
     from fastapi.responses import HTMLResponse
-    return HTMLResponse('<html><body><h1>Privacy Policy</h1><p>Amazon Ops Intel</p></body></html>')
+    
+    # OAuth callback — token exchange
+    if code:
+        try:
+            import httpx
+            # Try WOC first, fall back to STORE_02
+            cid = os.environ.get('ADS_WOC_CLIENT_ID', os.environ.get('STORE_02_LWA_CLIENT_ID', ''))
+            csec = os.environ.get('ADS_WOC_CLIENT_SECRET', os.environ.get('STORE_02_LWA_CLIENT_SECRET', ''))
+            
+            r = httpx.post('https://api.amazon.com/auth/o2/token',
+                data={'grant_type': 'authorization_code', 'code': code,
+                      'redirect_uri': str(request.url).split('?')[0],
+                      'client_id': cid, 'client_secret': csec}, timeout=15)
+            
+            if r.status_code == 200:
+                data = r.json()
+                return HTMLResponse(f'<html><body><h1>✅ Tokens Retrieved</h1><pre style="word-break:break-all;white-space:pre-wrap">Refresh Token: {data.get("refresh_token", "N/A")}</pre><p>Copy this token and store it securely.</p></body></html>')
+            return HTMLResponse(f'<html><body><h1>❌ Failed</h1><pre>{r.status_code}: {r.text[:1000]}</pre></body></html>', status_code=400)
+        except Exception as e:
+            return HTMLResponse(f'<html><body><h1>Error</h1><pre>{e}</pre></body></html>', status_code=500)
+    
+    return HTMLResponse('<html><body><h1>Privacy Policy</h1><p>Amazon Operations Intelligence Platform</p></body></html>')
 
 @app.get("/amazon-ads.txt")
 async def amazon_ads_txt():
