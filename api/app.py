@@ -379,7 +379,7 @@ async def seed_product_costs():
     return {"status": "ok", "products": n}
 
 @app.get("/admin/push-status")
-def push_status():
+async def push_status():
     """Check push notification infrastructure status."""
     import json as _json
     from pathlib import Path as _Path5
