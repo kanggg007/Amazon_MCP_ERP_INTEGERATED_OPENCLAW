@@ -345,7 +345,7 @@ def backfill_orders(date_start: str = None, date_end: str = None):
         import traceback as _tb
         return {"error": str(e), "traceback": _tb.format_exc()}
 
-@app.get("/auth/ads/callback")
+@app.api_route("/auth/ads/callback", methods=["GET", "HEAD"])
 async def ads_auth_callback(request: Request, code: str = None, state: str = None):
     """Ads API OAuth callback — exchange code for refresh token."""
     if not code:
