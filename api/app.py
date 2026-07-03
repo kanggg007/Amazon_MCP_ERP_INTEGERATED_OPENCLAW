@@ -1708,6 +1708,17 @@ async def _run_scheduler():
                     await loop.run_in_executor(None,task_b_collect)
                 except:pass
             
+            # Archive settled orders every hour at :05
+            if now.minute == 5 and (last_run.get('archive') is None or (now-last_run['archive']).seconds>300):
+                try:
+                    from engines.push_consumer import archive_settled_orders as _archive
+                    loop = asyncio.get_running_loop()
+                    n = await loop.run_in_executor(None, _archive)
+                    last_run['archive'] = now
+                    if n > 0:
+                        print(f"[SCHEDULER] Archived {n} settled orders", flush=True)
+                except: pass
+            
             # Daily profit report at 3 PM
             if now.hour == 15 and now.minute == 0 and (profit_last is None or (now-profit_last).seconds>120):
                 profit_last=now
