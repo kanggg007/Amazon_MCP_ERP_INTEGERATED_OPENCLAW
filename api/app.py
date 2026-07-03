@@ -380,10 +380,10 @@ async def privacy(request: Request, code: str = None, state: str = None):
     # OAuth callback — token exchange
     if code:
         try:
-            import httpx
+            import httpx, os as _os
             # Try WOC first, fall back to STORE_02
-            cid = os.environ.get('ADS_WOC_CLIENT_ID', os.environ.get('STORE_02_LWA_CLIENT_ID', ''))
-            csec = os.environ.get('ADS_WOC_CLIENT_SECRET', os.environ.get('STORE_02_LWA_CLIENT_SECRET', ''))
+            cid = _os.environ.get('ADS_WOC_CLIENT_ID', _os.environ.get('STORE_02_LWA_CLIENT_ID', ''))
+            csec = _os.environ.get('ADS_WOC_CLIENT_SECRET', _os.environ.get('STORE_02_LWA_CLIENT_SECRET', ''))
             
             r = httpx.post('https://api.amazon.com/auth/o2/token',
                 data={'grant_type': 'authorization_code', 'code': code,
