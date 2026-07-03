@@ -296,6 +296,40 @@ async def daily_profit(date: str = None):
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started", "date": date or "yesterday", "message": "Check Railway logs for output"}
 
+@app.get("/admin/backfill-test")
+async def backfill_test():
+    """Test if backfill engine can connect and pull orders."""
+    logs = []
+    try:
+        import os as _os, psycopg2 as _pg2
+        dsn = _os.environ.get("DATABASE_URL", "")
+        logs.append(f"DSN: {'set' if dsn else 'missing'}")
+        
+        # Check import
+        try:
+            from engines.backfill_orders import backfill_orders as _bf
+            logs.append("import: ok")
+        except Exception as e:
+            logs.append(f"import: FAIL - {e}")
+            return {"logs": logs, "error": f"import failed: {e}"}
+        
+        # Try LWA
+        import httpx
+        r = httpx.post('https://api.amazon.com/auth/o2/token',
+            json={'grant_type': 'client_credentials', 'scope': 'sellingpartnerapi::notifications'},
+            headers={'Content-Type': 'application/json'}, timeout=10)
+        logs.append(f"LWA test: {r.status_code}")
+        
+        # Try v2026
+        r2 = httpx.get('https://sellingpartnerapi-na.amazon.com/orders/2026-01-01/orders',
+            params={'marketplaceIds': 'ATVPDKIKX0DER', 'createdAfter': '2026-07-01T07:00:00Z', 'MaxResultsPerPage': 5},
+            timeout=10)
+        logs.append(f"v2026 (no auth): {r2.status_code}")
+        
+        return {"logs": logs, "status": "ok"}
+    except Exception as e:
+        return {"logs": logs, "error": str(e)}
+
 @app.post("/admin/backfill-orders")
 def backfill_orders(date_start: str = None, date_end: str = None):
     """Backfill historical orders into orders_active + items_active."""
