@@ -332,17 +332,18 @@ async def backfill_test():
 
 @app.post("/admin/backfill-orders")
 def backfill_orders(date_start: str = None, date_end: str = None):
-    """Backfill historical orders into orders_active + items_active."""
-    import threading, sys as _sys5
-    from pathlib import Path as _Path5
-    def _run():
+    """Backfill historical orders — SYNCHRONOUS for visibility into errors."""
+    try:
+        import sys as _sys5
+        from pathlib import Path as _Path5
         BASE5 = _Path5(__file__).parent.parent
         _sys5.path.insert(0, str(BASE5))
         from engines.backfill_orders import backfill_orders as _bf
-        result = _bf(date_start, date_end or date_start)
-        print(f"[BACKFILL] {result}", flush=True)
-    threading.Thread(target=_run, daemon=True).start()
-    return {"status": "started", "dates": f"{date_start} to {date_end or date_start}", "message": "Check Railway logs"}
+        result = _bf(date_start or "2026-07-01", date_end or date_start or "2026-07-01")
+        return result
+    except Exception as e:
+        import traceback as _tb
+        return {"error": str(e), "traceback": _tb.format_exc()}
 
 @app.get("/admin/ads-summary")
 def ads_summary(date: str = None):
