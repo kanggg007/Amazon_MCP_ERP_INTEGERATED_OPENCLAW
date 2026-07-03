@@ -385,6 +385,7 @@ async def push_status():
     from pathlib import Path as _Path5
     
     dsn = os.environ.get("DATABASE_URL", "")
+    import psycopg2 as _pg2
     result = {
         "sqs": "unknown",
         "destination": "unknown",
@@ -406,7 +407,7 @@ async def push_status():
     
     if dsn:
         try:
-            conn = psycopg2.connect(dsn)
+            conn = _pg2.connect(dsn)
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*), COUNT(DISTINCT store) FROM orders_active")
             r = cur.fetchone()
