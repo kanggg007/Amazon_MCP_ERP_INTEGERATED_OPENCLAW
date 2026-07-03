@@ -349,7 +349,8 @@ def backfill_orders(date_start: str = None, date_end: str = None):
 async def ads_auth_callback(request: Request, code: str = None, state: str = None):
     """Ads API OAuth callback — exchange code for refresh token."""
     if not code:
-        return {"error": "no code", "query": str(request.query_params)}
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse('<html><body><h1>Amazon Ads OAuth Callback</h1><p>Ready. Waiting for authorization code.</p></body></html>')
     
     try:
         import httpx
@@ -357,7 +358,7 @@ async def ads_auth_callback(request: Request, code: str = None, state: str = Non
         cid = _os.environ.get('ADS_WOC_CLIENT_ID', '')
         csec = _os.environ.get('ADS_WOC_CLIENT_SECRET', '')
         if not cid:
-            return {"error": "ADS_WOC creds not in env. Using .env fallback..."}
+            return HTMLResponse('<html><body><h1>Error</h1><p>ADS_WOC credentials not configured</p></body></html>', status_code=500)
         
         r = httpx.post('https://api.amazon.com/auth/o2/token',
             data={
@@ -370,16 +371,15 @@ async def ads_auth_callback(request: Request, code: str = None, state: str = Non
         
         if r.status_code == 200:
             data = r.json()
-            return {
-                "success": True,
-                "access_token": data.get('access_token', '')[:50] + '...',
-                "refresh_token": data.get('refresh_token', ''),
-                "token_type": data.get('token_type'),
-                "expires_in": data.get('expires_in'),
-            }
-        return {"error": f"Token exchange failed: HTTP {r.status_code}", "body": r.text[:500]}
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(f'''<html><body><h1>✅ Tokens Retrieved</h1>
+            <pre>Refresh Token: {data.get('refresh_token', 'N/A')}</pre>
+            <p>Copy this token and store it securely.</p></body></html>''')
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(f'<html><body><h1>❌ Token Exchange Failed</h1><pre>{r.status_code}: {r.text[:500]}</pre></body></html>', status_code=400)
     except Exception as e:
-        return {"error": str(e)}
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(f'<html><body><h1>Error</h1><pre>{e}</pre></body></html>', status_code=500)
 
 @app.get("/amazon-ads.txt")
 async def amazon_ads_txt():
