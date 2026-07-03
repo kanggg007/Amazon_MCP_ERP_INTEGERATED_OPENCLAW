@@ -284,6 +284,37 @@ async def negatives_scan(user_id: str = "master"):
         })
     return {"status":"ok","message":msg or "","candidates":result,"total":len(result)}
 
+@app.get("/admin/daily-profit")
+async def daily_profit(date: str = None):
+    """Trigger daily profit report v7."""
+    import threading
+    from pathlib import Path as _Path2
+    BASE2 = _Path2(__file__).parent.parent
+    def _run():
+        import subprocess as _sp3
+        _sp3.run(["python3", str(BASE2 / "scripts" / "daily_profit_v7.py")], cwd=str(BASE2))
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "date": date or "yesterday", "message": "Check Railway logs for output"}
+
+@app.get("/admin/ads-summary")
+def ads_summary(date: str = None):
+    """Show ads spend per store/market for a given date."""
+    import datetime as _dt
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return {"error": "no DATABASE_URL"}
+    conn = psycopg2.connect(dsn)
+    cur = conn.cursor()
+    if date is None:
+        cur.execute("SELECT store, market, date, SUM(cost), COUNT(*) FROM ads_daily WHERE date >= CURRENT_DATE - 7 GROUP BY store, market, date ORDER BY date DESC, store, market")
+    else:
+        cur.execute("SELECT store, market, SUM(cost), COUNT(*) FROM ads_daily WHERE date = %s GROUP BY store, market ORDER BY store, market", (date,))
+    rows = [{'store': r[0], 'market': r[1], 'date': str(r[2]) if date is None else date, 'cost': round(float(r[3] or 0), 2), 'rows': r[4]} for r in cur.fetchall()]
+    conn.close()
+    return {"date": date or "last 7 days", "ads": rows}
+
+@app.get("/admin/daily-profit")
+
 @app.post("/admin/seed-product-costs")
 async def seed_product_costs():
     """Seed product_cost_master table from data JSON."""
@@ -1659,6 +1690,7 @@ async def _run_scheduler():
     print(f"[SCHEDULER] Started with {len(SCHEDULE)} jobs", flush=True)
     last_run = {}
     collect_last = None
+    profit_last = None
     
     while True:
         try:
@@ -1675,6 +1707,22 @@ async def _run_scheduler():
                     loop=asyncio.get_running_loop()
                     await loop.run_in_executor(None,task_b_collect)
                 except:pass
+            
+            # Daily profit report at 3 PM
+            if now.hour == 15 and now.minute == 0 and (profit_last is None or (now-profit_last).seconds>120):
+                profit_last=now
+                try:
+                    import threading as _th2, sys as _sys3
+                    from pathlib import Path as _Path3
+                    BASE3 = _Path3(__file__).parent.parent
+                    def _run_profit():
+                        _sys3.path.insert(0, str(BASE3))
+                        from scripts.daily_profit_v7 import run
+                        run()
+                    _th2.Thread(target=_run_profit, daemon=True).start()
+                    print("[SCHEDULER] Daily profit report started", flush=True)
+                except Exception as e:
+                    print(f"[SCHEDULER] Daily profit ERROR: {e}", flush=True)
             for hour, minute, dow, script, name in SCHEDULE:
                 key = (hour, minute, dow or 0, script)
                 if now.hour == hour and now.minute == minute:

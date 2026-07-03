@@ -122,21 +122,25 @@ for store in ['CUCZUUS', 'BOOLUU', 'Heliumx']:
                 title = p.get('title', '') if items else ''
 
                 # v2026: price from orderItems, sum all items × quantity
-                price = 0
+                total_qty = 0
                 if items:
                     for it in items:
                         pr = it.get('product', {}).get('price', {}).get('unitPrice', {})
                         qty = int(it.get('quantityOrdered', 1) or 1)
-                        price += float(pr.get('amount', 0) or 0) * qty
+                        amt = float(pr.get('amount', 0) or 0)
                         cur = pr.get('currencyCode', 'USD')
-                status = 'FOUND'  # v2026 doesn't expose status. Fixed below
-
-                all_orders.append({
-                    'store': store, 'region': region, 'mkt': mkt,
-                    'oid': o['orderId'], 'status': status, 'price': price, 'cur': cur,
-                    'asin': asin, 'sku': sku, 'title': title,
-                    'host': host
-                })
+                        if amt > 0:
+                            item_price = amt * qty
+                            it_asin = it.get('product', {}).get('asin', '')
+                            it_sku = it.get('product', {}).get('sellerSku', '')
+                            it_title = it.get('product', {}).get('title', '')
+                            all_orders.append({
+                                'store': store, 'region': region, 'mkt': mkt,
+                                'oid': o['orderId'], 'price': item_price, 'cur': cur,
+                                'asin': it_asin, 'sku': it_sku, 'title': it_title,
+                                'host': host, 'qty': qty
+                            })
+                            total_qty += qty
 
             nt = d.get('nextToken')
             if not nt:
@@ -253,12 +257,13 @@ for o in all_orders:
     # FBA: use Products Fee API value, fallback to estimate
     fba = fba_cache.get((store, mkt, asin), price_usd * 0.25)
 
+    qty = o.get('qty', 1)
     key = (store, mkt)
-    by_mkt[key]['n'] += 1
+    by_mkt[key]['n'] += qty
     by_mkt[key]['rev'] += price_usd
-    by_mkt[key]['cogs'] += cogs
-    by_mkt[key]['frt'] += frt
-    by_mkt[key]['fba'] += fba
+    by_mkt[key]['cogs'] += cogs * qty
+    by_mkt[key]['frt'] += frt * qty
+    by_mkt[key]['fba'] += fba * qty
 
 # Report
 print()
