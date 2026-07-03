@@ -349,7 +349,7 @@ def backfill_orders(date_start: str = None, date_end: str = None):
 async def amazon_ads_txt():
     """Amazon Ads API Security Contact File"""
     from fastapi.responses import PlainTextResponse
-    return PlainTextResponse("# Amazon Ads API Security Contact\nContactName: Kang\nContactEmail: kang@megapower.com\nLastUpdated: 2026-07-03\n")
+    return PlainTextResponse("# Amazon Ads API Security Contact\nContactName: Kang\nContactEmail: megapower_gz@163.com\nLastUpdated: 2026-07-03\n")
 
 @app.get("/admin/ads-summary")
 def ads_summary(date: str = None):
