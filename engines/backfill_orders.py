@@ -12,13 +12,23 @@ def backfill_orders(date_start_str, date_end_str=None):
     if not dsn:
         return {"error": "no DATABASE_URL"}
 
+    # Load .env file as fallback (deployed alongside)
+    env_file = {}
+    import sys
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    if os.path.exists(env_path):
+        for line in open(env_path).read().splitlines():
+            if line and '=' in line and not line.startswith('#'):
+                k, v = line.split('=', 1)
+                env_file[k.strip()] = v.strip()
+
     def _env(key):
-        return os.environ.get(key, '')
+        return os.environ.get(key, env_file.get(key, ''))
 
     STORES = {
-        'CUCZUUS': {'num': '02'},
-        'BOOLUU': {'num': '03'},
-        'Heliumx': {'num': '04'},
+        'CUCZUUS': {'nums': ['02', '05']},
+        'BOOLUU': {'nums': ['03', '05']},
+        'Heliumx': {'nums': ['04', '05']},
     }
 
     HOSTS = {'NA': 'sellingpartnerapi-na.amazon.com',
@@ -49,30 +59,30 @@ def backfill_orders(date_start_str, date_end_str=None):
     total_items = 0
 
     for store_name, store_cfg in STORES.items():
-        snum = store_cfg['num']
-        CID = _env(f'STORE_{snum}_LWA_CLIENT_ID')
-        CSEC = _env(f'STORE_{snum}_LWA_CLIENT_SECRET')
-        if not CID:
-            print(f"  ⚠ {store_name}: no CLIENT_ID", flush=True)
-            continue
-
+        snums = store_cfg['nums']
+        
         for region, mids_str in REGIONS:
             ref_key = {'NA': 'AMERICAS', 'FE': 'AU', 'EU': 'EU'}[region]
-            ref = _env(f'STORE_{snum}_REFRESH_TOKEN_{ref_key}')
-            if not ref:
-                continue
-
-            # Get LWA token
-            try:
-                r = httpx.post('https://api.amazon.com/auth/o2/token',
-                    json={'grant_type': 'refresh_token', 'client_id': CID,
-                          'client_secret': CSEC, 'refresh_token': ref}, timeout=15)
-                if r.status_code != 200:
-                    print(f"  ⚠ LWA fail {store_name}/{region}: {r.status_code}", flush=True)
+            
+            # Try each credential number for this store
+            tk = None
+            for snum in snums:
+                CID = _env(f'STORE_{snum}_LWA_CLIENT_ID')
+                CSEC = _env(f'STORE_{snum}_LWA_CLIENT_SECRET')
+                ref = _env(f'STORE_{snum}_REFRESH_TOKEN_{ref_key}')
+                if not CID or not ref:
                     continue
-                tk = r.json()['access_token']
-            except Exception as e:
-                print(f"  ⚠ LWA error {store_name}/{region}: {e}", flush=True)
+                try:
+                    r = httpx.post('https://api.amazon.com/auth/o2/token',
+                        json={'grant_type': 'refresh_token', 'client_id': CID,
+                              'client_secret': CSEC, 'refresh_token': ref}, timeout=15)
+                    if r.status_code == 200:
+                        tk = r.json()['access_token']
+                        break
+                except:
+                    continue
+            
+            if not tk:
                 continue
 
             host = HOSTS[region]
