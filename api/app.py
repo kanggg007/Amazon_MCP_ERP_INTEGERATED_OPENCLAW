@@ -378,6 +378,50 @@ async def seed_product_costs():
     conn.commit(); conn.close()
     return {"status": "ok", "products": n}
 
+@app.get("/admin/push-status")
+def push_status():
+    """Check push notification infrastructure status."""
+    import json as _json
+    from pathlib import Path as _Path5
+    
+    dsn = os.environ.get("DATABASE_URL", "")
+    result = {
+        "sqs": "unknown",
+        "destination": "unknown",
+        "orders_active": 0,
+        "order_items": 0,
+        "archived": 0,
+    }
+    
+    cfg = {}
+    cfg_path = _Path5(__file__).parent.parent / 'data' / 'push_config.json'
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            cfg = _json.load(f)
+        result["sqs"] = cfg.get("sqs_queue_url", "missing")
+        result["destination"] = cfg.get("destination_id", "missing")
+    else:
+        result["sqs"] = "not configured"
+        result["destination"] = "not configured"
+    
+    if dsn:
+        try:
+            conn = psycopg2.connect(dsn)
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT store) FROM orders_active")
+            r = cur.fetchone()
+            result["orders_active"] = r[0]
+            result["stores"] = r[1]
+            cur.execute("SELECT COUNT(*) FROM order_items_active")
+            result["order_items"] = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM orders_archive")
+            result["archived"] = cur.fetchone()[0]
+            conn.close()
+        except Exception as e:
+            result["db_error"] = str(e)
+    
+    return result
+
 @app.get("/admin/db-check")
 async def db_check(store:str="CUCZUUS",market:str="US",rtype:str="sp_campaigns",date:str="2026-06-29"):
     """Direct DB check for specific row."""
