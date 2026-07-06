@@ -1880,6 +1880,17 @@ async def _run_scheduler():
                         print(f"[SCHEDULER] Archived {n} settled orders", flush=True)
                 except: pass
             
+            # Account health check every 6 hours (at :10 past 6, 12, 18, 0)
+            if now.minute == 10 and now.hour % 6 == 0 and (last_run.get('health') is None or (now-last_run['health']).seconds>300):
+                try:
+                    from engines.account_health import check_all_stores_health
+                    loop = asyncio.get_running_loop()
+                    issues = await loop.run_in_executor(None, check_all_stores_health)
+                    last_run['health'] = now
+                    if issues:
+                        print(f"[HEALTH] {issues}", flush=True)
+                except: pass
+            
             # Daily profit report at 3 PM
             if now.hour == 15 and now.minute == 0 and (profit_last is None or (now-profit_last).seconds>120):
                 profit_last=now
