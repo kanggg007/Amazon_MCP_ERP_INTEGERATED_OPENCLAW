@@ -275,6 +275,34 @@ else:
             print(f"    ✗ {wr2.text[:200]}")
 
 # ============================================================
+# PART 6: Additional notification types (LISTINGS, FBA, etc)
+# ============================================================
+
+print("\n" + "=" * 60)
+print("STEP 6: Additional notification types...")
+print("=" * 60)
+
+ADDITIONAL_TYPES = [
+    ('LISTINGS_ITEM_STATUS_CHANGE', 'Listing status changes'),
+    ('LISTINGS_ITEM_ISSUES_CHANGE', 'Listing issues/violations'),
+    ('FBA_OUTBOUND_SHIPMENT_STATUS', 'FBA shipment updates'),
+    ('FBA_INVENTORY_STATUS_CHANGE', 'FBA inventory changes'),
+]
+
+if not dest_id:
+    print("  ⚠ No destination ID — skipping")
+else:
+    for notif_type, desc in ADDITIONAL_TYPES:
+        sub_body = {'payloadVersion': '1.0', 'destinationId': dest_id}
+        r = httpx.post(
+            f'https://sellingpartnerapi-na.amazon.com/notifications/v1/subscriptions/{notif_type}',
+            headers={'x-amz-access-token': get_lwa_token('NA'), 'Content-Type': 'application/json'},
+            json=sub_body, timeout=15
+        )
+        status = '✓' if r.status_code in (200, 409) else f'✗ {r.status_code}'
+        print(f"  {notif_type}: {status}")
+
+# ============================================================
 # Summary
 # ============================================================
 print("\n" + "=" * 60)
