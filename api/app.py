@@ -405,6 +405,19 @@ async def amazon_ads_txt():
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse("# Amazon Ads API Security Contact\nContactName: Kang\nContactEmail: megapower_gz@163.com\nLastUpdated: 2026-07-03\n")
 
+@app.get("/admin/export-cost-master")
+def export_cost_master():
+    """Export product_cost_master as JSON."""
+    import psycopg2 as _pg2
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn: return {"error": "no DB"}
+    conn = _pg2.connect(dsn, connect_timeout=10)
+    cur = conn.cursor()
+    cur.execute('SELECT asin, marketplace, seller_sku, item_name, length_cm, width_cm, height_cm, weight_kg, cogs_usd, sea_freight_usd, fulfillment_channel FROM product_cost_master ORDER BY marketplace, asin')
+    rows = [{'asin': r[0], 'marketplace': r[1], 'sku': r[2], 'title': r[3], 'l': float(r[4] or 0), 'w': float(r[5] or 0), 'h': float(r[6] or 0), 'kg': float(r[7] or 0), 'cogs_usd': float(r[8] or 0), 'freight_usd': float(r[9] or 0), 'channel': r[10]} for r in cur.fetchall()]
+    conn.close()
+    return {"count": len(rows), "products": rows}
+
 @app.get("/admin/ads-summary")
 def ads_summary(date: str = None):
     import datetime as _dt

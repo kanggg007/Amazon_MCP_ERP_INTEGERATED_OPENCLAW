@@ -1,5 +1,6 @@
-"""Pull merchant listings for all stores/markets (except CUCZUUS US), save to desktop Excel."""
-import httpx, time, os, gzip, openpyxl, json, threading
+"""Pull merchant listings for ALL stores via Reports API. Saves to desktop Excel."""
+import httpx, time, os, openpyxl, gzip, io
+from collections import defaultdict
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 env = {}
@@ -8,129 +9,146 @@ for line in open(os.path.join(BASE, '.env')).read().splitlines():
         k, v = line.split('=', 1)
         env[k.strip()] = v.strip()
 
-# Define all store-market combos
-TASKS = []
-# CUCZUUS CA/AU/JP/DE
-for mkt, mid, region, ref_key in [
-    ('CA', 'A2EUQ1WTGCTBG2', 'NA', 'AMERICAS'),
-    ('AU', 'A39IBJ37TRP1C6', 'FE', 'AU'),
-    ('JP', 'A1VC38T7YXB528', 'FE', 'JP'),
-    ('DE', 'A1PA6795UKMFR9', 'EU', 'EU'),
-]:
-    TASKS.append(('CUCZUUS', mkt, mid, region, ref_key, '02'))
+STORES = {
+    'CUCZUUS': {'num': '02', 'markets': [
+        ('NA', 'ATVPDKIKX0DER', 'US'), ('NA', 'A2EUQ1WTGCTBG2', 'CA'),
+        ('FE', 'A39IBJ37TRP1C6', 'AU'), ('EU', 'A1PA6795UKMFR9', 'DE'),
+        ('FE', 'A1VC38T7YXB528', 'JP'),
+    ]},
+    'BOOLUU': {'num': '03', 'markets': [
+        ('NA', 'ATVPDKIKX0DER', 'US'), ('NA', 'A2EUQ1WTGCTBG2', 'CA'),
+        ('FE', 'A39IBJ37TRP1C6', 'AU'), ('FE', 'A1VC38T7YXB528', 'JP'),
+    ]},
+    'Heliumx': {'num': '04', 'markets': [
+        ('NA', 'ATVPDKIKX0DER', 'US'), ('NA', 'A2EUQ1WTGCTBG2', 'CA'),
+        ('FE', 'A39IBJ37TRP1C6', 'AU'), ('EU', 'A1PA6795UKMFR9', 'DE'),
+    ]},
+    'WOC': {'num': '05', 'markets': [
+        ('NA', 'ATVPDKIKX0DER', 'US'), ('NA', 'A2EUQ1WTGCTBG2', 'CA'),
+        ('NA', 'A1AM78C64UM0Y8', 'MX'), ('NA', 'A2Q3Y263D00KWC', 'BR'),
+        ('FE', 'A39IBJ37TRP1C6', 'AU'),
+    ]},
+}
 
-# BOOLUU all
-for mkt, mid, region, ref_key in [
-    ('US', 'ATVPDKIKX0DER', 'NA', 'AMERICAS'),
-    ('CA', 'A2EUQ1WTGCTBG2', 'NA', 'AMERICAS'),
-    ('AU', 'A39IBJ37TRP1C6', 'FE', 'AU'),
-    ('JP', 'A1VC38T7YXB528', 'FE', 'JP'),
-]:
-    TASKS.append(('BOOLUU', mkt, mid, region, ref_key, '03'))
+HOSTS = {'NA': 'sellingpartnerapi-na.amazon.com', 'FE': 'sellingpartnerapi-fe.amazon.com', 'EU': 'sellingpartnerapi-eu.amazon.com'}
 
-# Heliumx all
-for mkt, mid, region, ref_key in [
-    ('US', 'ATVPDKIKX0DER', 'NA', 'AMERICAS'),
-    ('CA', 'A2EUQ1WTGCTBG2', 'NA', 'AMERICAS'),
-    ('AU', 'A39IBJ37TRP1C6', 'FE', 'AU'),
-    ('DE', 'A1PA6795UKMFR9', 'EU', 'EU'),
-]:
-    TASKS.append(('Heliumx', mkt, mid, region, ref_key, '04'))
+wb = openpyxl.Workbook()
+wb.remove(wb.active)
+total = 0
 
-results = {}
-lock = threading.Lock()
-
-def pull_one(store, mkt, mid, region, ref_key, snum):
-    CID = env.get('STORE_' + snum + '_LWA_CLIENT_ID', '')
-    CSEC = env.get('STORE_' + snum + '_LWA_CLIENT_SECRET', '')
-    REF = env.get('STORE_' + snum + '_REFRESH_TOKEN_' + ref_key, '')
-    if not all([CID, CSEC, REF]):
-        with lock:
-            print('{} {}: no token'.format(store, mkt))
-        return
-
-    r = httpx.post('https://api.amazon.com/auth/o2/token',
-        json={'grant_type': 'refresh_token', 'client_id': CID,
-              'client_secret': CSEC, 'refresh_token': REF}, timeout=15)
-    if r.status_code != 200:
-        with lock:
-            print('{} {}: LWA fail {}'.format(store, mkt, r.status_code))
-        return
-
-    tk = r.json()['access_token']
-    host = {'NA': 'sellingpartnerapi-na.amazon.com', 'FE': 'sellingpartnerapi-fe.amazon.com',
-            'EU': 'sellingpartnerapi-eu.amazon.com'}[region]
-    body = {'reportType': 'GET_MERCHANT_LISTINGS_DATA', 'marketplaceIds': [mid]}
-    r2 = httpx.post('https://{}/reports/2021-06-30/reports'.format(host),
-        headers={'x-amz-access-token': tk, 'Content-Type': 'application/json'}, json=body, timeout=15)
-    rid = r2.json()['reportId']
-
-    for i in range(30):
-        time.sleep(10)
-        rp = httpx.get('https://{}/reports/2021-06-30/reports/{}'.format(host, rid),
-                       headers={'x-amz-access-token': tk}, timeout=10)
-        s = rp.json().get('processingStatus', '?')
-        if s == 'DONE':
-            did = rp.json().get('reportDocumentId', '')
-            doc = httpx.get('https://{}/reports/2021-06-30/documents/{}'.format(host, did),
-                            headers={'x-amz-access-token': tk}, timeout=15).json()
-            data = gzip.decompress(httpx.get(doc.get('url', ''), timeout=30).content).decode('utf-8-sig')
-            with lock:
-                results[(store, mkt)] = data
-                print('{} {}: {} listings'.format(store, mkt, len(data.strip().split('\n')) - 1))
-            break
-        elif s == 'CANCELLED':
-            with lock:
-                print('{} {}: CANCELLED'.format(store, mkt))
-            break
-
-print('Pulling merchant listings ({} reports in parallel)...'.format(len(TASKS)))
-threads = []
-for task in TASKS:
-    t = threading.Thread(target=pull_one, args=task)
-    t.start()
-    threads.append(t)
-for t in threads:
-    t.join()
-
-# Save to Excel
-print('\nSaving to Excel...')
-out = openpyxl.Workbook()
-out.remove(out.active)
-
-for (store, mkt), data in results.items():
-    if not data:
+for store_name, store_cfg in STORES.items():
+    snum = store_cfg['num']
+    print(f'\n{store_name} (STORE_{snum})')
+    
+    cid = env.get(f'STORE_{snum}_LWA_CLIENT_ID', '')
+    csec = env.get(f'STORE_{snum}_LWA_CLIENT_SECRET', '')
+    if not cid:
+        print(f'  No creds')
         continue
-    ws = out.create_sheet('{} {}'.format(store, mkt))
-    rows = [l.split('\t') for l in data.strip().split('\n')]
-    header = rows[0]
+    
+    for region, mid, mkt_name in store_cfg['markets']:
+        host = HOSTS[region]
+        ref_key = {'NA': 'AMERICAS', 'FE': 'AU', 'EU': 'EU'}[region]
+        ref = env.get(f'STORE_{snum}_REFRESH_TOKEN_{ref_key}', '')
+        if not ref:
+            continue
+        
+        # LWA
+        r = httpx.post('https://api.amazon.com/auth/o2/token',
+            json={'grant_type': 'refresh_token', 'client_id': cid,
+                  'client_secret': csec, 'refresh_token': ref}, timeout=15)
+        if r.status_code != 200:
+            print(f'  {mkt_name}: LWA fail')
+            continue
+        tk = r.json()['access_token']
+        
+        # Create report
+        body = {'reportType': 'GET_MERCHANT_LISTINGS_ALL_DATA', 'marketplaceIds': [mid]}
+        r2 = httpx.post(f'https://{host}/reports/2021-06-30/reports',
+            headers={'x-amz-access-token': tk, 'Content-Type': 'application/json'}, json=body, timeout=15)
+        
+        if r2.status_code != 202:
+            print(f'  {mkt_name}: report create fail {r2.status_code}')
+            continue
+        
+        rid = r2.json()['reportId']
+        print(f'  {mkt_name}: report {rid}...', end=' ', flush=True)
+        
+        # Poll for completion
+        doc_id = None
+        for _ in range(30):
+            time.sleep(3)
+            r3 = httpx.get(f'https://{host}/reports/2021-06-30/reports/{rid}',
+                headers={'x-amz-access-token': tk}, timeout=15)
+            if r3.status_code != 200:
+                break
+            status = r3.json().get('processingStatus', '?')
+            if status == 'DONE':
+                doc_id = r3.json().get('reportDocumentId', '')
+                break
+            elif status in ('CANCELLED', 'FATAL'):
+                break
+        
+        if not doc_id:
+            print('failed/timeout')
+            continue
+        
+        # Download document
+        r4 = httpx.get(f'https://{host}/reports/2021-06-30/documents/{doc_id}',
+            headers={'x-amz-access-token': tk}, timeout=15)
+        if r4.status_code != 200:
+            print('doc fail')
+            continue
+        
+        doc = r4.json()
+        url = doc.get('url', '')
+        r5 = httpx.get(url, timeout=30)
+        
+        # Decompress and parse TSV
+        content = gzip.decompress(r5.content) if doc.get('compressionAlgorithm') == 'GZIP' else r5.content
+        lines = content.decode('utf-8', errors='replace').split('\n')
+        
+        if len(lines) < 2:
+            print('0 listings')
+            continue
+        
+        # Parse header
+        header = lines[0].split('\t')
+        # Find relevant columns
+        col_idx = {h.lower().replace('-', ''): i for i, h in enumerate(header) if h}
+        
+        asin_col = col_idx.get('asin1', col_idx.get('itemid', 0))
+        sku_col = col_idx.get('seller-sku', col_idx.get('seller sku', 1))
+        title_col = col_idx.get('item-name', col_idx.get('productname', 2))
+        price_col = col_idx.get('price', col_idx.get('yourprice', 3))
+        qty_col = col_idx.get('quantity', col_idx.get('qty', 4))
+        status_col = col_idx.get('status', col_idx.get('open date', 5))
+        
+        sheet_name = f'{store_name} {mkt_name}'[:31]
+        ws = wb.create_sheet(title=sheet_name)
+        ws.append(['ASIN', 'Title', 'SKU', 'Price', 'Quantity', 'Status'])
+        
+        count = 0
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+            cols = line.split('\t')
+            asin = cols[asin_col].strip() if asin_col < len(cols) else ''
+            title = cols[title_col].strip() if title_col < len(cols) else ''
+            sku = cols[sku_col].strip() if sku_col < len(cols) else ''
+            price = cols[price_col].strip() if price_col < len(cols) else ''
+            qty = cols[qty_col].strip() if qty_col < len(cols) else ''
+            status = cols[status_col].strip() if status_col < len(cols) else ''
+            
+            if asin:
+                ws.append([asin, title[:200], sku, price, qty, status])
+                count += 1
+        
+        total += count
+        print(f'{count} listings')
+        time.sleep(2)
 
-    # Find columns
-    try:
-        ni = header.index('item-name')
-        si = header.index('seller-sku')
-        ai = header.index('asin1')
-        try:
-            fi = header.index('fulfillment-channel')
-        except:
-            fi = None
-
-        ws.append(['item-name', 'seller-sku', 'asin1', 'fulfillment-channel'])
-        for row in rows[1:]:
-            if len(row) > max(ni, si, ai):
-                name = row[ni][:100] if row[ni] else ''
-                sku = row[si] if row[si] else ''
-                asin = row[ai] if row[ai] else ''
-                fc = row[fi] if fi and fi < len(row) else ''
-                ws.append([name, sku, asin, fc])
-
-        # Auto-width
-        for col in ws.columns:
-            mx = max((len(str(c.value or '')) for c in col), default=0)
-            ws.column_dimensions[col[0].column_letter].width = min(mx + 2, 60)
-    except Exception as e:
-        print('{} {}: error {}'.format(store, mkt, e))
-
-out_path = os.path.expanduser('~/Desktop/merchant_listings_all_stores.xlsx')
-out.save(out_path)
-print('Saved to {}'.format(out_path))
+path = os.path.expanduser('~/Desktop/merchant_listings_all_stores.xlsx')
+wb.save(path)
+print(f'\n✅ Saved: {path}')
+print(f'   Total: {total} listings across {len(wb.sheetnames)} sheets')
