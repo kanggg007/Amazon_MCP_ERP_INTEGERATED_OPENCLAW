@@ -192,8 +192,19 @@ def enrich_order(order_id, store, marketplace_id, seller_id):
         return []
 
 def process_notification(msg):
-    """Process a single ORDER_CHANGE notification."""
+    """Process a single SP-API notification."""
     body = json.loads(msg['Body'])
+    notification_type = body.get('NotificationType', '')
+    
+    if notification_type == 'ORDER_CHANGE':
+        return process_order_change(body)
+    elif notification_type == 'MFN_INBOUND_MESSAGE':
+        return process_buyer_message(body)
+    else:
+        print(f"  ⚠ Unknown notification type: {notification_type}")
+        return
+
+def process_buyer_message(body):
     payload = body.get('Payload', {})
     notification = payload.get('OrderChangeNotification', {})
     

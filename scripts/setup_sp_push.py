@@ -194,6 +194,87 @@ else:
         print(f"  Response: {r.text[:500]}")
 
 # ============================================================
+# PART 4: Subscribe to MFN_INBOUND_MESSAGE (buyer messages)
+# ============================================================
+
+print("\n" + "=" * 60)
+print("STEP 4: Subscribing to MFN_INBOUND_MESSAGE...")
+print("=" * 60)
+
+if not dest_id:
+    print("  ⚠ No destination ID — skipping subscription")
+else:
+    msg_body = {
+        'payloadVersion': '1.0',
+        'destinationId': dest_id,
+    }
+    
+    r = httpx.post(
+        f'https://sellingpartnerapi-na.amazon.com/notifications/v1/subscriptions/MFN_INBOUND_MESSAGE',
+        headers={'x-amz-access-token': get_lwa_token('NA'), 'Content-Type': 'application/json'},
+        json=msg_body, timeout=15
+    )
+    print(f"  Status: {r.status_code}")
+    if r.status_code in (200, 409):
+        sub = r.json().get('payload', {})
+        sub_id = sub.get('subscriptionId', '(already exists)')
+        print(f"  ✓ Subscription: {sub_id}")
+    else:
+        print(f"  Response: {r.text[:500]}")
+
+# ============================================================
+# PART 5: Subscribe WOC (STORE_05) to ORDER_CHANGE
+# ============================================================
+
+print("\n" + "=" * 60)
+print("STEP 5: Subscribing WOC to ORDER_CHANGE...")
+print("=" * 60)
+
+woc_cid = os.environ.get('STORE_05_LWA_CLIENT_ID', '')
+woc_csec = os.environ.get('STORE_05_LWA_CLIENT_SECRET', '')
+
+if not woc_cid or not dest_id:
+    print(f"  ⚠ WOC creds missing or no destination")
+else:
+    woc_sub_body = {
+        'payloadVersion': '1.0',
+        'destinationId': dest_id,
+        'processingDirective': {
+            'eventFilter': {
+                'eventFilterType': 'ORDER_CHANGE'
+            }
+        }
+    }
+    
+    for woc_region, woc_host, woc_ref_key in [
+        ('NA', 'sellingpartnerapi-na.amazon.com', 'STORE_05_REFRESH_TOKEN_AMERICAS'),
+        ('FE', 'sellingpartnerapi-fe.amazon.com', 'STORE_05_REFRESH_TOKEN_AU'),
+        ('EU', 'sellingpartnerapi-eu.amazon.com', 'STORE_05_REFRESH_TOKEN_EU'),
+    ]:
+        woc_ref = os.environ.get(woc_ref_key, '')
+        if not woc_ref:
+            print(f"  WOC {woc_region}: no refresh token")
+            continue
+        
+        wr = httpx.post('https://api.amazon.com/auth/o2/token',
+            json={'grant_type': 'refresh_token', 'client_id': woc_cid,
+                  'client_secret': woc_csec, 'refresh_token': woc_ref}, timeout=15)
+        if wr.status_code != 200:
+            print(f"  WOC {woc_region}: LWA fail {wr.status_code}")
+            continue
+        wtk = wr.json()['access_token']
+        
+        wr2 = httpx.post(f'https://{woc_host}/notifications/v1/subscriptions/ORDER_CHANGE',
+            headers={'x-amz-access-token': wtk, 'Content-Type': 'application/json'},
+            json=woc_sub_body, timeout=15)
+        print(f"  WOC {woc_region} ORDER_CHANGE: {wr2.status_code}")
+        if wr2.status_code in (200, 409):
+            sub = wr2.json().get('payload', {})
+            print(f"    ✓ {sub.get('subscriptionId', 'exists')}")
+        else:
+            print(f"    ✗ {wr2.text[:200]}")
+
+# ============================================================
 # Summary
 # ============================================================
 print("\n" + "=" * 60)
