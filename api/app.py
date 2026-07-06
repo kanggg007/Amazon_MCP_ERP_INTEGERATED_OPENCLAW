@@ -1880,20 +1880,6 @@ async def _run_scheduler():
                         print(f"[SCHEDULER] Archived {n} settled orders", flush=True)
                 except: pass
             
-            # Inventory turnover check at 8 AM
-            if now.hour == 8 and now.minute == 0 and (last_run.get('inventory') is None or (now-last_run['inventory']).seconds>300):
-                try:
-                    from engines.inventory_turnover import check_inventory_turnover
-                    loop = asyncio.get_running_loop()
-                    result = await loop.run_in_executor(None, check_inventory_turnover)
-                    last_run['inventory'] = now
-                    alerts = result.get('alerts', [])
-                    if any('🚨' in a or '⚠️' in a for a in alerts):
-                        for a in alerts:
-                            if '🚨' in a or '⚠️' in a:
-                                print(f"[INVENTORY] {a}", flush=True)
-                except: pass
-            
             # Account health check every 6 hours (at :10 past 6, 12, 18, 0)
             if now.minute == 10 and now.hour % 6 == 0 and (last_run.get('health') is None or (now-last_run['health']).seconds>300):
                 try:
