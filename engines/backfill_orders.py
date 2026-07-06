@@ -158,7 +158,7 @@ def backfill_orders(date_start_str, date_end_str=None):
                 conn.close()
                 total_orders += day_orders
 
-                nt = data.get('nextToken')
+                nt = data.get('pagination', {}).get('nextToken')
                 if not nt:
                     break
                 time.sleep(0.3)

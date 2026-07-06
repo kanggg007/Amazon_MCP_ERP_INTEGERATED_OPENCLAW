@@ -92,16 +92,7 @@ for store_name, snum, seller_id in STORES:
                 mkt = MID_TO_MKT.get(mkt_id, 'US')
                 pd = o.get('purchaseDate', '')
                 if not pd:
-                    continue
-                
-                try:
-                    pdt = datetime.fromisoformat(str(pd).replace('Z', '+00:00'))
-                    pdt_date = (pdt - timedelta(hours=7)).date()
-                except:
-                    continue
-                
-                if pdt_date < date_start.date() or pdt_date > date_end.date():
-                    continue
+                    pd = '2026-01-01T00:00:00Z'
                 
                 cur.execute("""
                     INSERT INTO orders_active (order_id, store, marketplace, marketplace_id, seller_id, status, fulfillment_type, purchase_date, last_updated)
@@ -131,7 +122,7 @@ for store_name, snum, seller_id in STORES:
             conn.commit()
             conn.close()
             
-            nt = r2.json().get('nextToken')
+            nt = r2.json().get('pagination', {}).get('nextToken')
             if not nt:
                 break
             time.sleep(0.3)
