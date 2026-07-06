@@ -408,8 +408,8 @@ async def amazon_ads_txt():
 @app.get("/admin/export-cost-master")
 def export_cost_master():
     """Export product_cost_master as JSON."""
-    import psycopg2 as _pg2
-    dsn = os.environ.get("DATABASE_URL", "")
+    import psycopg2 as _pg2, os as _os
+    dsn = _os.environ.get("DATABASE_URL", "")
     if not dsn: return {"error": "no DB"}
     conn = _pg2.connect(dsn, connect_timeout=10)
     cur = conn.cursor()
