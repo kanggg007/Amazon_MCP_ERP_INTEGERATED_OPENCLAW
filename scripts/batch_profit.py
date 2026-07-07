@@ -8,7 +8,10 @@ for line in open(os.path.join(BASE, '.env')).read().splitlines():
         k, v = line.split('=', 1)
         env[k.strip()] = v.strip()
 
-dsn = env['DATABASE_URL']
+dsn = env.get('DATABASE_URL', os.environ.get('DATABASE_URL', ''))
+if not dsn:
+    print('No DATABASE_URL')
+    exit(1)
 
 CNY_USD = 0.1477
 REFERRAL_RATE = 0.15
