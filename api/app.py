@@ -507,6 +507,26 @@ def restock_suggest(store: str = None):
     from engines.restock_advisor import suggest_restock
     return suggest_restock(store)
 
+@app.get("/admin/live-revenue")
+def live_revenue(date: str = None):
+    """Real-time revenue & profit from push data."""
+    import sys as _sys7
+    from pathlib import Path as _Path7
+    BASE7 = _Path7(__file__).parent.parent
+    _sys7.path.insert(0, str(BASE7))
+    from engines.live_profit import daily_summary
+    return daily_summary(date)
+
+@app.get("/admin/inbound-track")
+def inbound_track(store: str = None):
+    """Track all inbound shipments in transit."""
+    import sys as _sys8
+    from pathlib import Path as _Path8
+    BASE8 = _Path8(__file__).parent.parent
+    _sys8.path.insert(0, str(BASE8))
+    from engines.inbound_tracker import check_shipments
+    return check_shipments(store)
+
 @app.get("/admin/push-status")
 async def push_status():
     """Check push notification infrastructure status."""

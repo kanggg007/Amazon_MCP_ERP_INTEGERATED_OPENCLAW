@@ -89,33 +89,27 @@ def suggest_restock(store=None):
     for r in cur.fetchall():
         inventory[(r[0], r[1])] = {'total': r[2] or 0, 'available': r[3] or 0}
     
-    # 3. Get in-transit shipments (skip if table doesn't match schema)
+    # 3. Get in-transit shipments via inbound tracker
     in_transit = {}
     arriving_soon = {}
     try:
-        cur.execute("""
-            SELECT 
-                raw_data->>'asin' as asin,
-                marketplace_id as marketplace,
-                store_id as store,
-                total_units_shipped as quantity,
-                estimated_arrival_date as estimated_arrival
-            FROM inbound_shipments
-            WHERE shipment_status IN ('SHIPPED', 'IN_TRANSIT', 'WORKING')
-        """)
-        today = datetime.now().date()
-        for r in cur.fetchall():
-            asin, mkt, st, qty, est = r[0], r[1], r[2], r[3], r[4]
-            if not asin:
+        from engines.inbound_tracker import track_inbound_shipments
+        tracking = track_inbound_shipments(store)
+        for s in tracking.get('in_transit', []):
+            asin = s.get('asin', '?')
+            if asin == '?' or not asin:
                 continue
+            mkt = s.get('marketplace', '')
+            st = s.get('store', '')
+            qty = s.get('units', 0)
             key = (asin, mkt, st)
-            in_transit[key] = in_transit.get(key, 0) + (qty or 0)
-            if est:
-                est_date = est.date() if hasattr(est, 'date') else est
-                if est_date and est_date <= today + timedelta(days=14):
-                    arriving_soon[key] = arriving_soon.get(key, 0) + (qty or 0)
+            in_transit[key] = in_transit.get(key, 0) + qty
+            
+            # Arriving soon: within 2 weeks
+            if s.get('alert') in ('ARRIVING_SOON', 'OVERDUE'):
+                arriving_soon[key] = arriving_soon.get(key, 0) + qty
     except Exception as e:
-        print(f"  (inbound_shipments table: {e})", flush=True)
+        print(f"  (inbound tracker: {e})", flush=True)
     
     # 4. Get product lead times from product_cost_master
     cur.execute("""

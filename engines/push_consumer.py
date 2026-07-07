@@ -277,6 +277,20 @@ def process_buyer_message(body):
                 """, (oid, it['order_item_id'], it['sku'], it['asin'],
                        it['qty'], it['price'], it['currency'], it['title']))
                 print(f"  ➕ {it['asin']} {it['sku']} ${it['price']} x{it['qty']}")
+            
+            # Compute live profit for each item
+            try:
+                from engines.live_profit import compute_profit
+                for it in items:
+                    profit_result = compute_profit(
+                        order_id=oid, store=store, marketplace=it['marketplace'],
+                        sku=it['sku'], quantity=it['qty'],
+                        order_date=str(purchase_date)[:10] if purchase_date else None
+                    )
+                    if profit_result and 'error' not in profit_result:
+                        print(f"  💰 profit=${profit_result['profit']} ({profit_result['margin']}%)")
+            except Exception as e:
+                print(f"  ⚠️ profit compute error: {e}")
             conn.commit()
             conn.close()
 
