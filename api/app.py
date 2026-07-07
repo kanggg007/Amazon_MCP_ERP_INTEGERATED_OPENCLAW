@@ -517,6 +517,19 @@ def live_revenue(date: str = None):
     from engines.live_profit import daily_summary
     return daily_summary(date)
 
+@app.post("/admin/pull-profit")
+def pull_profit(date: str = None):
+    """Pull v2026 orders for a date + compute live profit. (Use when backfill missing)"""
+    import threading, sys as _sys8
+    from pathlib import Path as _Path8
+    BASE8 = _Path8(__file__).parent.parent
+    def _run():
+        _sys8.path.insert(0, str(BASE8))
+        import subprocess as _sp
+        _sp.run([_sys8.executable, str(BASE8 / 'scripts' / 'pull_july6.py')], cwd=str(BASE8), timeout=300)
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "date": date or "today", "message": "Check Railway logs. Then refresh /admin/live-revenue"}
+
 @app.get("/admin/inbound-track")
 def inbound_track(store: str = None):
     """Track all inbound shipments in transit."""
