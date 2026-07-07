@@ -507,6 +507,48 @@ def restock_suggest(store: str = None):
     from engines.restock_advisor import suggest_restock
     return suggest_restock(store)
 
+@app.post("/admin/compute-profit")
+def compute_profit_batch(date: str = None):
+    """Batch compute profit for all orders on a given date."""
+    import threading, sys as _sys9
+    from pathlib import Path as _Path9
+    from datetime import date as _date
+    target_date = date or _date.today().isoformat()
+    def _run():
+        BASE9 = _Path9(__file__).parent.parent
+        _sys9.path.insert(0, str(BASE9))
+        import psycopg2 as _pg2
+        from engines.live_profit import compute_profit, daily_summary, ensure_tables
+        ensure_tables()
+        dsn = os.environ.get('DATABASE_URL', '')
+        if not dsn: return
+        conn = _pg2.connect(dsn, connect_timeout=10)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT oa.order_id, oa.store, oa.marketplace, oi.seller_sku, oi.quantity, DATE(oa.purchase_date)
+            FROM orders_active oa
+            JOIN order_items_active oi ON oa.order_id = oi.order_id
+            WHERE DATE(oa.purchase_date) = %s
+            AND NOT EXISTS (
+                SELECT 1 FROM profit_live pl
+                WHERE pl.order_id = oa.order_id AND pl.order_item_id = oi.order_item_id
+            )
+        """, (target_date,))
+        items = [{'order_id': r[0], 'store': r[1], 'mkt': r[2], 'sku': r[3], 'qty': r[4], 'date': str(r[5])} for r in cur.fetchall()]
+        conn.close()
+        
+        ok = 0; err = 0
+        for it in items:
+            result = compute_profit(it['order_id'], it['store'], it['mkt'], it['sku'], it['qty'], it['date'])
+            if result and 'error' not in result:
+                ok += 1
+            else:
+                err += 1
+        print(f"[COMPUTE-PROFIT] {target_date}: {ok} computed, {err} skipped", flush=True)
+        
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "date": target_date, "check": "/admin/live-revenue?date=" + target_date}
+
 @app.get("/admin/live-revenue")
 def live_revenue(date: str = None):
     """Real-time revenue & profit from push data."""
