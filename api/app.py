@@ -509,7 +509,7 @@ def restock_suggest(store: str = None):
 
 @app.post("/admin/compute-profit")
 def compute_profit_batch(date: str = None):
-    """Batch compute profit for all orders on a given date."""
+    """Batch compute profit for all orders on a given date. Runs batch_profit.py."""
     import threading, sys as _sys9
     from pathlib import Path as _Path9
     from datetime import date as _date
@@ -517,35 +517,12 @@ def compute_profit_batch(date: str = None):
     def _run():
         BASE9 = _Path9(__file__).parent.parent
         _sys9.path.insert(0, str(BASE9))
-        import psycopg2 as _pg2
-        from engines.live_profit import compute_profit, daily_summary, ensure_tables
-        ensure_tables()
-        dsn = os.environ.get('DATABASE_URL', '')
-        if not dsn: return
-        conn = _pg2.connect(dsn, connect_timeout=10)
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT oa.order_id, oa.store, oa.marketplace, oi.seller_sku, oi.quantity, DATE(oa.purchase_date)
-            FROM orders_active oa
-            JOIN order_items_active oi ON oa.order_id = oi.order_id
-            WHERE DATE(oa.purchase_date) = %s
-            AND NOT EXISTS (
-                SELECT 1 FROM profit_live pl
-                WHERE pl.order_id = oa.order_id AND pl.order_item_id = oi.order_item_id
-            )
-        """, (target_date,))
-        items = [{'order_id': r[0], 'store': r[1], 'mkt': r[2], 'sku': r[3], 'qty': r[4], 'date': str(r[5])} for r in cur.fetchall()]
-        conn.close()
-        
-        ok = 0; err = 0
-        for it in items:
-            result = compute_profit(it['order_id'], it['store'], it['mkt'], it['sku'], it['qty'], it['date'])
-            if result and 'error' not in result:
-                ok += 1
-            else:
-                err += 1
-        print(f"[COMPUTE-PROFIT] {target_date}: {ok} computed, {err} skipped", flush=True)
-        
+        import subprocess as _sp
+        result = _sp.run([_sys9.executable, str(BASE9 / 'scripts' / 'batch_profit.py'), target_date],
+                        capture_output=True, text=True, cwd=str(BASE9), timeout=120)
+        print(f"[COMPUTE-PROFIT] {target_date}:\n{result.stdout}", flush=True)
+        if result.stderr:
+            print(f"[COMPUTE-PROFIT ERR] {result.stderr}", flush=True)
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started", "date": target_date, "check": "/admin/live-revenue?date=" + target_date}
 
