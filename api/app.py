@@ -497,6 +497,16 @@ async def seed_product_costs():
     conn.commit(); conn.close()
     return {"status": "ok", "products": n}
 
+@app.get("/admin/restock-suggest")
+def restock_suggest(store: str = None):
+    """Analyze sales velocity + inventory + transit → recommend restock quantities."""
+    import sys as _sys6
+    from pathlib import Path as _Path6
+    BASE6 = _Path6(__file__).parent.parent
+    _sys6.path.insert(0, str(BASE6))
+    from engines.restock_advisor import suggest_restock
+    return suggest_restock(store)
+
 @app.get("/admin/push-status")
 async def push_status():
     """Check push notification infrastructure status."""
