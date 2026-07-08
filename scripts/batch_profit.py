@@ -101,6 +101,7 @@ def batch_compute(date_str):
     
     # Batch compute
     ok = 0; flagged = 0
+    insert_rows = []
     for oid, oiid, store, mkt, sku, asin, qty, price, title, currency, od in items:
         if price <= 0 or qty <= 0:
             continue
@@ -110,7 +111,12 @@ def batch_compute(date_str):
         cost = costs.get((asin, mkt), {})
         cogs = cost.get('cogs', 0) * qty
         freight = cost.get('freight', 0) * qty
-        fba = 0  # Will be added when fba_fees table is populated
+        fba_fee_value = 0
+        
+        # Lookup FBA from fba_fees table (cached)
+        fba_result = fba_cache.get((asin, mkt))
+        if fba_result:
+            fba_fee_value = fba_result * qty
         
         flags_list = []
         if (asin, mkt) not in costs:
@@ -119,7 +125,8 @@ def batch_compute(date_str):
             flags_list.append('COGS_MISSING')
         if not cost.get('freight'):
             flags_list.append('FREIGHT_MISSING')
-        flags_list.append('FBA_MISSING')
+        if not fba_result:
+            flags_list.append('FBA_MISSING')
         
         referral = revenue * REFERRAL_RATE
         
@@ -128,23 +135,29 @@ def batch_compute(date_str):
         avg_orders = daily_orders.get(key, 1) or 1
         ads = daily_ad / avg_orders if avg_orders > 0 else 0
         
-        profit = revenue - cogs - freight - fba - referral - ads
+        profit = revenue - cogs - freight - fba_fee_value - referral - ads
         margin = (profit / revenue * 100) if revenue > 0 else 0
         flags = '|'.join(flags_list)
         
-        cur.execute("""
-            INSERT INTO profit_live (order_id, order_item_id, store, marketplace, asin, sku, title,
-                unit_price, quantity, revenue, currency, cogs, sea_freight, fba_fee,
-                referral_fee, ads_spend, profit, margin, flags, order_date, order_time)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
-            ON CONFLICT (order_id, order_item_id) DO NOTHING
-        """, (oid, oiid, store, mkt, asin, sku, title, price, qty,
-              round(revenue, 3), currency, round(cogs, 3), round(freight, 3),
-              round(fba, 3), round(referral, 3), round(ads, 3),
-              round(profit, 3), round(margin, 3), flags, od))
+        insert_rows.append((oid, oiid, store, mkt, asin, sku, title, price, qty,
+            round(revenue, 3), currency, round(cogs, 3), round(freight, 3),
+            round(fba_fee_value, 3), round(referral, 3), round(ads, 3),
+            round(profit, 3), round(margin, 3), flags, od))
         ok += 1
         if 'ASIN_NOT_IN_CATALOG' in flags:
             flagged += 1
+    
+    # Batch INSERT all at once
+    if insert_rows:
+        from psycopg2.extras import execute_values
+        execute_values(cur, """
+            INSERT INTO profit_live (order_id, order_item_id, store, marketplace, asin, sku, title,
+                unit_price, quantity, revenue, currency, cogs, sea_freight, fba_fee,
+                referral_fee, ads_spend, profit, margin, flags, order_date, order_time)
+            VALUES %s
+            ON CONFLICT (order_id, order_item_id) DO NOTHING
+        """, insert_rows,
+        template='(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())', page_size=500)
     
     conn.commit()
     conn.close()
