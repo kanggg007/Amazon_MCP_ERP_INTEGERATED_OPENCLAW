@@ -99,6 +99,12 @@ def batch_compute(date_str):
     """, (date_str,))
     daily_orders = {(r[0], r[1]): float(r[2] or 1) for r in cur.fetchall()}
     
+    # Pre-load FBA fees from fba_fees table
+    cur.execute("""
+        SELECT asin, marketplace, fba_fee FROM fba_fees
+    """)
+    fba_cache = {(r[0], r[1]): float(r[2]) for r in cur.fetchall()}
+    
     # Batch compute
     ok = 0; flagged = 0
     insert_rows = []
