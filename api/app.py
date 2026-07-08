@@ -606,6 +606,27 @@ def month_profit(month: str = '2026-06', store: str = None):
         "margin": round(total_profit/total_rev*100, 1) if total_rev > 0 else 0
     }}
 
+@app.post("/admin/backfill-finances")
+def backfill_finances(store: str = 'BOOLUU', month: str = None):
+    """Run Finances API backfill for a store+month (server-side, US network)."""
+    import threading, sys as _sysF, subprocess as _sp
+    from pathlib import Path as _PathF
+    from datetime import date as _date
+    
+    target = month or _date.today().strftime('%Y-%m')
+    
+    def _run():
+        BASE_F = _PathF(__file__).parent.parent
+        _sysF.path.insert(0, str(BASE_F))
+        result = _sp.run([_sysF.executable, str(BASE_F / 'scripts' / 'backfill_finances_railway.py'), store, target],
+                        capture_output=True, text=True, cwd=str(BASE_F), timeout=300)
+        print(f"[FINANCES] {store} {target}:\n{result.stdout}", flush=True)
+        if result.stderr:
+            print(f"[FINANCES ERR] {result.stderr}", flush=True)
+    
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "store": store, "month": target, "note": "Runs server-side. Check Railway logs."}
+
 @app.get("/admin/live-revenue")
 def live_revenue(date: str = None):
     """Real-time revenue & profit from push data."""
