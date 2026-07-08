@@ -526,6 +526,86 @@ def compute_profit_batch(date: str = None):
     threading.Thread(target=_run, daemon=True).start()
     return {"status": "started", "date": target_date, "check": "/admin/live-revenue?date=" + target_date}
 
+@app.get("/admin/month-profit")
+def month_profit(month: str = '2026-06', store: str = None):
+    """Compute full month profit on-the-fly. month=YYYY-MM, store=BOOLUU etc."""
+    import sys as _sysM
+    from pathlib import Path as _PathM
+    BASE_M = _PathM(__file__).parent.parent
+    _sysM.path.insert(0, str(BASE_M))
+    import psycopg2, os as _os
+    from collections import defaultdict
+    
+    dsn = _os.environ.get('DATABASE_URL', '')
+    conn = psycopg2.connect(dsn, connect_timeout=10)
+    conn.set_session(autocommit=True)
+    cur = conn.cursor()
+    
+    fx = {'USD':1.0,'CAD':0.73,'AUD':0.67,'JPY':0.0067}
+    ref_rate = 0.15
+    
+    store_filter = "AND oa.store = %s" if store else ""
+    params = [month+'-01', month+'-31']
+    if store: params.append(store)
+    
+    cur.execute("SELECT asin,marketplace,cogs_usd,sea_freight_usd FROM product_cost_master")
+    cc = {(str(r[0]),str(r[1])):(float(r[2]or 0),float(r[3]or 0)) for r in cur.fetchall()}
+    
+    cur.execute("SELECT asin,marketplace,fba_fee,COALESCE(fba_currency,'USD') FROM fba_fees")
+    fb = {}
+    for r in cur.fetchall(): fb[(str(r[0]),str(r[1]))] = (float(r[2]or 0), str(r[3]or'USD'))
+    
+    ad = {}
+    try:
+        cur.execute(f"SELECT store,country,SUM(spend)/NULLIF(SUM(units_sold),0) FROM ads_daily WHERE date>='{month}-01' AND date<'{month}-31' {'AND store=%s' if store else ''} GROUP BY store,country", params[1:2] if store else [])
+        for r in cur.fetchall(): ad[(r[0],r[1])] = float(r[2]or 0)
+    except: pass
+    
+    cur.execute(f"""SELECT oa.store,oa.order_id,oa.marketplace,oi.asin,oi.quantity,oi.unit_price,oi.currency
+        FROM orders_active oa JOIN order_items_active oi ON oa.order_id=oi.order_id
+        WHERE oa.purchase_date>='{month}-01' AND oa.purchase_date<'{month}-31' {store_filter}""", params[2:] if store else [])
+    
+    rows_by_store = defaultdict(lambda: defaultdict(lambda: [0,0,0,0,0,0,0,0,0,0])) # [ord,units,rev,cogs,freight,fba,ref,ads,profit,margin]
+    order_sets = defaultdict(lambda: defaultdict(set))
+    
+    for store_name,oid,mkt,asin,qty,price,curr in cur.fetchall():
+        if price is None: continue
+        qty = float(qty or 1); price = float(price or 0); curr = str(curr or 'USD').strip()
+        rate = fx.get(curr, fx.get(curr[:3], 1.0))
+        rev = price * qty * rate
+        order_sets[store_name][mkt].add(oid)
+        r = rows_by_store[store_name][mkt]
+        r[1] += qty; r[2] += rev; r[6] += rev * ref_rate
+        c,f = cc.get((str(asin),str(mkt)), (0,0))
+        r[3] += c * qty; r[4] += f * qty
+        fee,fcur = fb.get((str(asin),str(mkt)), (0,'USD'))
+        r[5] += fee * fx.get(fcur,1.0) * qty
+        r[7] += ad.get((store_name,mkt), 0) * qty
+    
+    conn.close()
+    
+    result = []
+    for store_name in sorted(rows_by_store):
+        for mkt in sorted(rows_by_store[store_name]):
+            r = rows_by_store[store_name][mkt]
+            r[0] = len(order_sets[store_name][mkt])
+            r[8] = r[2] - r[3] - r[4] - r[5] - r[6] - r[7]
+            r[9] = round(r[8]/r[2]*100, 1) if r[2] > 0 else 0
+            result.append({k:v for k,v in zip(
+                ['store','marketplace','orders','units','revenue','cogs','freight','fba','referral','ads','profit','margin'],
+                [store_name, mkt, int(r[0]), int(r[1])] + [round(x,2) for x in r[2:]]
+            )})
+    
+    total_rev = sum(x['revenue'] for x in result)
+    total_profit = sum(x['profit'] for x in result)
+    return {"month": month, "store": store or "all", "summary": result, "totals": {
+        "orders": sum(x['orders'] for x in result),
+        "units": sum(x['units'] for x in result),
+        "revenue": round(total_rev, 2),
+        "profit": round(total_profit, 2),
+        "margin": round(total_profit/total_rev*100, 1) if total_rev > 0 else 0
+    }}
+
 @app.get("/admin/live-revenue")
 def live_revenue(date: str = None):
     """Real-time revenue & profit from push data."""
