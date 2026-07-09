@@ -1,0 +1,39 @@
+{
+  "CUCZUUS": {
+    "profiles": 4,
+    "subscriptions": {
+      "BR_sp-traffic": "\u2717 400",
+      "BR_sp-conversions": "\u2717 400",
+      "CA_sp-traffic": "\u2717 400",
+      "CA_sp-conversions": "\u2717 400",
+      "MX_sp-traffic": "\u2717 400",
+      "MX_sp-conversions": "\u2717 400",
+      "US_sp-traffic": "\u2717 400",
+      "US_sp-conversions": "\u2717 400"
+    }
+  },
+  "BOOLUU": {
+    "profiles": 4,
+    "subscriptions": {
+      "BR_sp-traffic": "\u2717 400",
+      "BR_sp-conversions": "\u2717 400",
+      "CA_sp-traffic": "\u2717 400",
+      "CA_sp-conversions": "\u2717 400",
+      "MX_sp-traffic": "\u2717 400",
+      "MX_sp-conversions": "\u2717 400",
+      "US_sp-traffic": "\u2717 400",
+      "US_sp-conversions": "\u2717 400"
+    }
+  },
+  "Heliumx": {
+    "profiles": 3,
+    "subscriptions": {
+      "CA_sp-traffic": "\u2717 400",
+      "CA_sp-conversions": "\u2717 400",
+      "MX_sp-traffic": "\u2717 400",
+      "MX_sp-conversions": "\u2717 400",
+      "US_sp-traffic": "\u2717 400",
+      "US_sp-conversions": "\u2717 400"
+    }
+  }
+}

@@ -99,13 +99,17 @@ def batch_compute(date_str):
     """, (date_str,))
     daily_orders = {(r[0], r[1]): float(r[2] or 1) for r in cur.fetchall()}
     
-    # Pre-load FBA fees from fba_fees table
-    cur.execute("""
-        SELECT asin, marketplace, fba_fee FROM fba_fees
-    """)
-    fba_cache = {(r[0], r[1]): float(r[2]) for r in cur.fetchall()}
-    
-    # Batch compute
+    # Pre-load FBA fees from fba_fees table (with FX conversion)
+    FX_USD = {'US': 1.0, 'CA': 0.7033, 'AU': 0.6892, 'JP': 0.00614, 'DE': 1.1403}
+    cur.execute("SELECT asin, marketplace, fba_fee, COALESCE(fba_currency, 'USD') FROM fba_fees")
+    fba_cache = {}
+    for r in cur.fetchall():
+        asin, mkt, fba_val, currency = r[0], r[1], float(r[2] or 0), r[3] or 'USD'
+        fx = FX_USD.get(mkt, 1.0)
+        if currency != 'USD':
+            fba_val = fba_val * fx  # Convert local currency to USD
+        fba_cache[(asin, mkt)] = fba_val
+    print(f'FBA cache: {len(fba_cache)} entries', flush=True)
     ok = 0; flagged = 0
     insert_rows = []
     for oid, oiid, store, mkt, sku, asin, qty, price, title, currency, od in items:
